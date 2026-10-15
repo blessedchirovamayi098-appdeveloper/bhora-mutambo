@@ -1,10 +1,10 @@
-
 import "./AdminDashboard.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 
 const SECTIONS = [
   { key: "overview", label: "Overview", description: "League activity and system statistics." },
+  { key: "registrations", label: "Registration applications", description: "Review, approve or reject applications." },
   { key: "clubs", label: "Clubs", description: "Manage the club directory." },
   { key: "approved_roster", label: "Players & roster", description: "Manage approved squad members." },
   { key: "approved_player_profiles", label: "Player profiles", description: "Manage public player profiles." },
@@ -32,25 +32,121 @@ const COMPETITIONS = [
 
 const SEASONS = Array.from({ length: 24 }, (_, i) => `${2026 + i}-${2027 + i}`);
 const MATCH_STATUSES = ["Scheduled", "Live", "Completed", "Postponed", "Cancelled"];
+const PLAYER_POSITIONS = [
+  "GK",
+  "CB",
+  "LB",
+  "RB",
+  "LWB",
+  "RWB",
+  "CDM",
+  "CM",
+  "CAM",
+  "LM",
+  "RM",
+  "LW",
+  "RW",
+  "CF",
+  "ST",
+];
 const DEFAULT_VENUE = "Manav Rachna University Football Pitch";
 
 const TABLE_COLUMNS = {
-  clubs: ["id", "name", "slug", "short_name", "description", "created_at"],
+  clubs: [
+    "id",
+    "name",
+    "logo_path",
+    "slug",
+    "short_name",
+    "description",
+    "created_at",
+  ],
+  approved_roster: [
+    "id",
+    "club_id",
+    "role",
+    "full_name",
+    "photo_path",
+    "position_or_specialty",
+    "experience",
+    "status",
+    "created_at",
+  ],
+
+
+  suspensions: [
+    "id",
+    "player_registration_id",
+    "club_id",
+    "competition",
+    "season",
+    "reason",
+    "source_match_id",
+    "matches_total",
+    "matches_served",
+    "status",
+    "notes",
+    "created_by",
+    "created_at",
+  ],
+
+
+
+  approved_player_profiles: [
+    "id",
+    "registration_id",
+    "football_name",
+    "full_name",
+    "jersey_number",
+    "photo_path",
+    "club_id",
+    "club_name",
+    "position",
+    "is_published",
+  ],
+
   admin_users: ["user_id", "display_name", "created_at"],
   matches: [
-    "id", "competition", "season", "home_club_id", "away_club_id",
-    "kickoff_at", "venue", "status", "home_score", "away_score",
-    "notes", "created_at",
+    "id",
+    "competition",
+    "season",
+    "home_club_id",
+    "away_club_id",
+    "home_coach_roster_id",
+    "away_coach_roster_id",
+    "referee_1_roster_id",
+    "referee_2_roster_id",
+    "referee_3_roster_id",
+    "kickoff_at",
+    "match_started_at",
+    "venue",
+    "status",
+    "home_score",
+    "away_score",
+    "notes",
+    "updated_by",
+    "created_at",
   ],
   match_lineups: [
     "id", "match_id", "club_id", "player_registration_id",
     "lineup_role", "position", "jersey_number", "is_published",
     "created_at", "updated_at",
   ],
+
   match_events: [
-    "id", "match_id", "club_id", "player_registration_id",
-    "event_type", "minute", "notes", "created_by", "created_at",
+    "id",
+    "match_id",
+    "club_id",
+    "player_registration_id",
+    "assist_registration_id",
+    "event_type",
+    "minute",
+    "notes",
+    "created_by",
+    "created_at",
   ],
+
+
 };
 
 const OVERVIEW_TABLES = {
@@ -64,6 +160,27 @@ const OVERVIEW_TABLES = {
   suspensions: "suspensions",
   admins: "admin_users",
 };
+
+function getFootballName(person, profiles = [], registrations = []) {
+  const profile = profiles.find(
+    (item) => item.registration_id === person.id
+  );
+
+  const registration = registrations.find(
+    (item) =>
+      item.id === (person.registration_id || person.id)
+  );
+
+  return (
+    person.football_name ||
+    profile?.football_name ||
+    registration?.football_name ||
+    person.full_name ||
+    registration?.full_name ||
+    "Unnamed person"
+  );
+}
+
 
 const labelize = (value) =>
   String(value).replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -131,6 +248,72 @@ function getPrimaryKey(table, row) {
   return null;
 }
 
+async function uploadImage(file, folder = "players") {
+  if (!file) return null;
+
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error("Choose a JPG, PNG or WebP image.");
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error("The image must be smaller than 5 MB.");
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const safeName = `${crypto.randomUUID()}.${extension}`;
+  const storagePath = `${folder}/${safeName}`;
+
+  const { data, error } = await supabase.storage
+    .from("football-images")
+    .upload(storagePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type,
+    });
+
+  if (error) throw error;
+
+  return data.path;
+}
+
+
+function getImageUrl(path) {
+  if (!path || typeof path !== "string") return "";
+
+  // Allow either a full image URL or a path in Supabase Storage.
+  if (/^https?:\/\//i.test(path)) return path;
+
+  const cleanPath = path.replace(/^\/+/, "");
+  const { data } = supabase.storage
+    .from("football-images")
+    .getPublicUrl(cleanPath);
+
+  return data?.publicUrl || "";
+}
+
+function AdminImage({ path, alt, className }) {
+  const src = getImageUrl(path);
+
+  if (!src) {
+    return <span className="admin-image-placeholder">No image</span>;
+  }
+
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
+
+
 export default function AdminDashboard({ user, onSignOut }) {
   const [section, setSection] = useState("overview");
   const [rows, setRows] = useState([]);
@@ -155,6 +338,7 @@ export default function AdminDashboard({ user, onSignOut }) {
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
+  const [logoFile, setLogoFile] = useState(null);
 
   const loadOverview = useCallback(async () => {
     if (!supabase) return;
@@ -167,8 +351,10 @@ export default function AdminDashboard({ user, onSignOut }) {
           .limit(2000);
 
         if (queryError) {
-          console.error(`Unable to load ${table}:`, queryError.message);
-          return [key, []];
+          console.error(`Unable to load ${table}:`, queryError);
+          throw new Error(
+            `Could not load ${table}: ${queryError.message}`
+          );
         }
 
         return [key, data ?? []];
@@ -191,10 +377,15 @@ export default function AdminDashboard({ user, onSignOut }) {
     setError("");
 
     if (["overview", "standings", "reports"].includes(section)) {
-      await loadOverview();
-      setRows([]);
-      setColumns([]);
-      setLoading(false);
+      try {
+        await loadOverview();
+        setRows([]);
+        setColumns([]);
+      } catch (loadError) {
+        setError(loadError?.message || "Could not load dashboard data.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -213,13 +404,65 @@ export default function AdminDashboard({ user, onSignOut }) {
 
     const list = data ?? [];
     setRows(list);
-    setColumns(list.length ? Object.keys(list[0]) : TABLE_COLUMNS[section] ?? []);
+    setColumns(
+      list.length > 0
+        ? Object.keys(list[0])
+        : (TABLE_COLUMNS[section] ?? [])
+    );
 
     if (section === "clubs") setClubs(list);
 
-    await loadOverview();
-    setLoading(false);
+    try {
+      await loadOverview();
+    } catch (loadError) {
+      setError(loadError?.message || "Could not load related dashboard data.");
+    } finally {
+      setLoading(false);
+    }
   }, [section, loadOverview]);
+
+  async function reviewRegistration(app, newStatus) {
+    if (!supabase || !user?.id) {
+      setError("Please sign in as an administrator.");
+      return;
+    }
+
+    if (!["Approved", "Rejected"].includes(newStatus)) {
+      setError("Invalid registration status.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    try {
+      const { error: reviewError } = await supabase.rpc(
+        "review_registration",
+        {
+          p_registration_id: app.id,
+          p_new_status: newStatus,
+          p_reviewed_by: user.id,
+        }
+      );
+
+      if (reviewError) throw reviewError;
+
+      setNotice(
+        newStatus === "Approved"
+          ? "Application approved and linked to the club roster."
+          : "Application rejected successfully."
+      );
+
+      await loadOverview();
+      await loadRows();
+    } catch (reviewError) {
+      setError(
+        reviewError?.message || "Could not review the application."
+      );
+    }
+  }
+
+
 
   useEffect(() => {
     loadRows();
@@ -326,7 +569,25 @@ export default function AdminDashboard({ user, onSignOut }) {
     setError("");
     setNotice("");
 
+    if (section === "approved_player_profiles") {
+      setEditing({ mode: "create", primaryKey: "id" });
+      setDraft({
+        registration_id: "",
+        football_name: "",
+        full_name: "",
+        jersey_number: "",
+        photo_path: "",
+        club_id: "",
+        club_name: "",
+        position: "",
+        is_published: false,
+      });
+      return;
+    }
+
+
     if (section === "clubs") {
+      setLogoFile(null);
       setEditing({ mode: "create", primaryKey: "id" });
       setDraft({ name: "", short_name: "", slug: "", description: "" });
       return;
@@ -347,6 +608,13 @@ export default function AdminDashboard({ user, onSignOut }) {
         away_club_id: "",
         kickoff_at: "",
         venue: DEFAULT_VENUE,
+        home_coach_roster_id: "",
+        away_coach_roster_id: "",
+        referee_1_roster_id: "",
+        referee_2_roster_id: "",
+        referee_3_roster_id: "",
+        match_started_at: "",
+        updated_by: user?.id || "",
         status: "Scheduled",
         home_score: "",
         away_score: "",
@@ -354,6 +622,7 @@ export default function AdminDashboard({ user, onSignOut }) {
       });
       return;
     }
+
 
     if (section === "match_lineups") {
       setEditing({ mode: "create" });
@@ -368,6 +637,43 @@ export default function AdminDashboard({ user, onSignOut }) {
       });
       return;
     }
+
+
+    if (section === "approved_roster") {
+      setEditing({ mode: "create" });
+      setDraft({
+        club_id: "",
+        role: "player",
+        full_name: "",
+        position_or_specialty: "",
+        experience: "",
+        status: "Approved",
+      });
+      return;
+    }
+
+    if (section === "suspensions") {
+      setEditing({ mode: "create" });
+
+      setDraft({
+        player_registration_id: "",
+        jersey_number: "",
+        club_id: "",
+        competition: "",
+        season: "",
+        reason: "",
+        source_match_id: "",
+        matches_total: "",
+        matches_served: "0",
+        status: "active",
+        notes: "",
+        created_by: user?.id || "",
+      });
+
+      return;
+    }
+
+
 
     if (!columns.length) {
       setError("No table columns are available. Refresh the table and check its schema and permissions.");
@@ -405,40 +711,168 @@ export default function AdminDashboard({ user, onSignOut }) {
               : String(value);
       }
     });
+    if (section === "suspensions") {
+      const player = overview.registrations.find(
+        (item) => item.id === row.player_registration_id
+      );
+
+      next.jersey_number = player?.jersey_number ?? "";
+    }
 
     setEditing({ mode: "edit", row, primaryKey });
     setDraft(next);
-    setError("");
-    setNotice("");
   }
 
   function renderDraftField(key, value) {
+
     const update = (nextValue) => {
       setDraft((old) => {
         const next = { ...old, [key]: nextValue };
 
+        if (section === "approved_player_profiles" && key === "registration_id") {
+          const registration = overview.registrations.find(
+            (item) => item.id === nextValue
+          );
+
+          if (registration) {
+            next.football_name =
+              registration.football_name || registration.full_name || "Player";
+            next.full_name = registration.full_name || "";
+            next.jersey_number = registration.jersey_number ?? "";
+            next.photo_path = registration.photo_path || "";
+            next.club_id = registration.club_id || "";
+            next.club_name = registration.club_name || "";
+            next.position = registration.position_or_specialty || "";
+          }
+        }
+
         if (key === "match_id") {
           const match = overview.matches.find((item) => item.id === nextValue);
-          if (match && next.club_id && ![match.home_club_id, match.away_club_id].includes(next.club_id)) {
+          if (match && next.club_id &&
+            ![match.home_club_id, match.away_club_id].includes(next.club_id)) {
             next.club_id = "";
             next.player_registration_id = "";
           }
         }
 
-        if (key === "club_id") next.player_registration_id = "";
-        if (key === "home_club_id" && next.away_club_id === nextValue) next.away_club_id = "";
-        if (key === "away_club_id" && next.home_club_id === nextValue) next.home_club_id = "";
+
+
+        if (section === "suspensions" && key === "player_registration_id") {
+          const player = overview.registrations.find(
+            (item) => item.id === nextValue
+          );
+
+          next.club_id = player?.club_id || "";
+          next.jersey_number = player?.jersey_number ?? "";
+        }
+
+        if (section === "suspensions" && key === "club_id") {
+          next.player_registration_id = "";
+          next.jersey_number = "";
+        }
+
+
+        if (
+          key === "club_id" &&
+          ["match_lineups", "match_events"].includes(section)
+        ) {
+          next.player_registration_id = "";
+          next.jersey_number = "";
+        }
+        if (key === "home_club_id" || key === "away_club_id") {
+          const coachKey =
+            key === "home_club_id"
+              ? "home_coach_roster_id"
+              : "away_coach_roster_id";
+
+          const coach = overview.roster.find(
+            (person) =>
+              person.club_id === nextValue &&
+              String(person.role || "").toLowerCase() === "coach" &&
+              String(person.status || "").toLowerCase() === "approved"
+          );
+
+          next[coachKey] = coach?.id || "";
+        }
+
+        if (
+          key === "referee_1_roster_id" ||
+          key === "referee_2_roster_id" ||
+          key === "referee_3_roster_id"
+        ) {
+          // Clear duplicate assignments if a referee is changed.
+          const refereeKeys = [
+            "referee_1_roster_id",
+            "referee_2_roster_id",
+            "referee_3_roster_id",
+          ];
+
+          const selectedReferee = nextValue;
+
+          refereeKeys.forEach((refereeKey) => {
+            if (
+              refereeKey !== key &&
+              next[refereeKey] === selectedReferee
+            ) {
+              next[refereeKey] = "";
+            }
+          });
+        }
+
+        if (key === "home_club_id" && next.away_club_id === nextValue) {
+          next.away_club_id = "";
+        }
+        if (key === "away_club_id" && next.home_club_id === nextValue) {
+          next.home_club_id = "";
+        }
 
         return next;
       });
     };
 
+
+
     const field = (control) => (
-      <label key={key} className="admin-field">
-        <span>{labelize(key)}</span>
+      <label className="admin-field">
+        <span>
+          {section === "approved_player_profiles" && key === "is_published"
+            ? "Publish profile publicly"
+            : labelize(key)}
+        </span>
         {control}
       </label>
     );
+
+    if (section === "clubs" && key === "logo_path") {
+      return (
+        <label className="admin-field">
+          <span>Club logo</span>
+
+          {value && (
+            <AdminImage
+              path={value}
+              alt="Current club logo"
+              className="admin-club-logo"
+            />
+          )}
+
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              setLogoFile(event.target.files?.[0] || null);
+            }}
+          />
+
+          {logoFile && (
+            <small>Selected: {logoFile.name}</small>
+          )}
+
+          <small>Choose a JPG, PNG or WebP image, up to 5 MB.</small>
+        </label>
+      );
+    }
+
 
     const select = (options, placeholder = "Select...") => (
       <select value={value ?? ""} onChange={(event) => update(event.target.value)}>
@@ -449,7 +883,143 @@ export default function AdminDashboard({ user, onSignOut }) {
       </select>
     );
 
+    if (section === "suspensions" && key === "club_id") {
+      return field(
+        select(
+          clubs.map((club) => ({
+            value: club.id,
+            label: club.name,
+          })),
+          "Select club"
+        )
+      );
+    }
+
+
+    if (section === "suspensions" && key === "player_registration_id") {
+      const players = overview.registrations.filter(
+        (player) =>
+          player.club_id === draft.club_id &&
+          String(player.role || "").toLowerCase() === "player" &&
+          String(player.status || "").toLowerCase() === "approved"
+      );
+
+      return field(
+        select(
+          players.map((player) => ({
+            value: player.id,
+            label: `${player.football_name || player.full_name || "Player"}${player.jersey_number != null
+              ? ` (#${player.jersey_number})`
+              : ""
+              }`,
+          })),
+          draft.club_id ? "Select player" : "Select club first"
+        )
+      );
+    }
+
+    if (section === "suspensions" && key === "jersey_number") {
+      return field(
+        <input
+          value={value ?? ""}
+          readOnly
+          placeholder="Auto-filled from player"
+        />
+      );
+    }
+
+
     if (section === "matches") {
+      if (
+        key === "home_coach_roster_id" ||
+        key === "away_coach_roster_id"
+      ) {
+        const clubId =
+          key === "home_coach_roster_id"
+            ? draft.home_club_id
+            : draft.away_club_id;
+
+        const coaches = overview.roster.filter(
+          (person) =>
+            person.club_id === clubId &&
+            String(person.role || "").toLowerCase() === "coach" &&
+            String(person.status || "").toLowerCase() === "approved"
+        );
+
+        return field(
+          select(
+            coaches.map((person) => ({
+              value: person.id,
+              label: getFootballName(
+                person,
+                overview.profiles,
+                overview.registrations
+              ),
+            })),
+            clubId ? "Select approved coach" : "Select the club first"
+          )
+        );
+      }
+
+      if (key.startsWith("referee_") && key.endsWith("_roster_id")) {
+        const refereeKeys = [
+          "referee_1_roster_id",
+          "referee_2_roster_id",
+          "referee_3_roster_id",
+        ];
+
+        const referees = overview.roster.filter((person) => {
+          const isApprovedReferee =
+            String(person.role || "").trim().toLowerCase() === "referee" &&
+            String(person.status || "").trim().toLowerCase() === "approved";
+
+          const selectedElsewhere = refereeKeys.some(
+            (otherKey) => otherKey !== key && draft[otherKey] === person.id
+          );
+
+          return isApprovedReferee && !selectedElsewhere;
+        });
+
+        return field(
+          select(
+            referees.map((person) => ({
+              value: person.id,
+              label: getFootballName(
+                person,
+                overview.profiles,
+                overview.registrations
+              ),
+            })),
+            "Select an approved referee"
+          )
+        );
+      }
+
+      if (key === "match_started_at") {
+        return field(
+          <input
+            type="datetime-local"
+            value={toLocalDateTimeInput(value)}
+            onChange={(event) => update(event.target.value)}
+          />
+        );
+      }
+
+      if (key === "updated_by") {
+        return field(
+          <select
+            value={user?.id || ""}
+            disabled
+            aria-label="Administrator updating fixture"
+          >
+            <option value={user?.id || ""}>
+              {overview.admins.find(
+                (admin) => admin.user_id === user?.id
+              )?.display_name || user?.email || "Signed-in administrator"}
+            </option>
+          </select>
+        );
+      }
       if (key === "competition") {
         return field(select(COMPETITIONS.map((item) => ({ value: item, label: item })), "Select competition"));
       }
@@ -528,10 +1098,22 @@ export default function AdminDashboard({ user, onSignOut }) {
         return field(select(
           players.map((player) => ({
             value: player.id,
-            label: `${player.football_name || player.full_name || "Unnamed player"}${player.jersey_number != null ? ` (#${player.jersey_number})` : ""}`,
+            label: `${getFootballName(player, overview.profiles, overview.registrations)}${player.jersey_number != null ? ` (#${player.jersey_number})` : ""}`,
           })),
           "Select approved player"
         ));
+      }
+
+      if (key === "position") {
+        return field(
+          select(
+            PLAYER_POSITIONS.map((position) => ({
+              value: position,
+              label: position,
+            })),
+            "Select player position"
+          )
+        );
       }
 
       if (key === "lineup_role") {
@@ -549,10 +1131,18 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       if (key === "jersey_number") {
         return field(
-          <input type="number" min="1" max="99" value={value ?? ""} onChange={(event) => update(event.target.value)} />
+          <input
+            type="number"
+            min="1"
+            max="99"
+            value={value ?? ""}
+            readOnly
+            placeholder="Auto-filled from registration"
+          />
         );
       }
     }
+
 
     if (section === "match_events") {
       if (key === "event_type") {
@@ -592,7 +1182,79 @@ export default function AdminDashboard({ user, onSignOut }) {
           "Optional: select player"
         ));
       }
+
+      if (key === "assist_registration_id") {
+        const players = overview.registrations.filter(
+          (player) =>
+            String(player.role || "").trim().toLowerCase() === "player" &&
+            String(player.status || "").trim().toLowerCase() === "approved" &&
+            player.club_id === draft.club_id &&
+            player.id !== draft.player_registration_id
+        );
+
+        return field(
+          select(
+            players.map((player) => ({
+              value: player.id,
+              label: player.football_name || player.full_name || player.id,
+            })),
+            "Optional: select assisting player"
+          )
+        );
+      }
+
     }
+
+    if (section === "approved_player_profiles") {
+      if (key === "registration_id") {
+        const linkedIds = new Set(
+          rows
+            .filter((profile) => profile.registration_id && profile.id !== editing?.row?.id)
+            .map((profile) => profile.registration_id)
+        );
+
+        const availableRegistrations = overview.registrations.filter(
+          (registration) =>
+            String(registration.role || "").trim().toLowerCase() === "player" &&
+            String(registration.status || "").trim().toLowerCase() === "approved" &&
+            (!linkedIds.has(registration.id) || registration.id === value)
+        );
+
+        return field(
+          select(
+            availableRegistrations.map((registration) => ({
+              value: registration.id,
+              label: `${registration.football_name || registration.full_name || "Player"} · #${registration.jersey_number ?? "—"} · ${registration.club_name || "Club"}`,
+            })),
+            "Select approved registration"
+          )
+        );
+      }
+
+      if (key === "football_name" || key === "full_name" || key === "position" || key === "club_name" || key === "photo_path") {
+        return field(
+          <input
+            value={value ?? ""}
+            onChange={(event) => update(event.target.value)}
+            placeholder={labelize(key)}
+          />
+        );
+      }
+
+      if (key === "jersey_number") {
+        return field(
+          <input
+            type="number"
+            min="1"
+            max="99"
+            step="1"
+            value={value ?? ""}
+            onChange={(event) => update(event.target.value)}
+          />
+        );
+      }
+    }
+
 
     if (key === "club_id" && !["match_lineups", "match_events"].includes(section)) {
       return field(select(clubs.map((club) => ({ value: club.id, label: club.name })), "Select club"));
@@ -708,11 +1370,51 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       let payload = {};
 
+      if (section === "approved_player_profiles") {
+        const registration = overview.registrations.find(
+          (item) => item.id === draft.registration_id
+        );
+
+        if (
+          !draft.registration_id ||
+          !registration ||
+          String(registration.role || "").trim().toLowerCase() !== "player" ||
+          String(registration.status || "").trim().toLowerCase() !== "approved"
+        ) {
+          setError("Select a valid approved player registration.");
+          return;
+        }
+
+        if (!String(draft.football_name || "").trim()) {
+          setError("Enter the player's football name.");
+          return;
+        }
+
+        const number = Number(draft.jersey_number);
+        if (
+          draft.jersey_number === "" ||
+          !Number.isInteger(number) ||
+          number < 1 ||
+          number > 99
+        ) {
+          setError("Jersey number must be a whole number between 1 and 99.");
+          return;
+        }
+      }
+
+
       Object.entries(draft).forEach(([key, value]) => {
+
         if ([
-          "id", "uuid", "created_at", "updated_at",
-          "reviewed_at", "created_by", "reviewed_by",
-        ].includes(key)) return;
+          "id",
+          "uuid",
+          "created_at",
+          "updated_at",
+          "reviewed_at",
+          "created_by",
+          "reviewed_by",
+        ].includes(key)) { }
+
 
         // Important: match notes must never be converted to NULL.
         if (section === "matches" && key === "notes") {
@@ -740,6 +1442,45 @@ export default function AdminDashboard({ user, onSignOut }) {
         payload[key] = value;
       });
 
+      if (section === "approved_roster") {
+        payload = {
+          club_id: draft.club_id || null,
+          role: String(draft.role || "player").trim(),
+          full_name: String(draft.full_name || "").trim(),
+          position_or_specialty: draft.position_or_specialty || null,
+          experience: draft.experience || null,
+          status: String(draft.status || "Approved").trim(),
+        };
+
+        if (!payload.club_id || !payload.full_name || !payload.role) {
+          setError("Select a club and enter the member's full name and role.");
+          return;
+        }
+      }
+
+      if (section === "approved_player_profiles") {
+        payload = {
+          registration_id: draft.registration_id,
+          football_name: String(draft.football_name || "").trim(),
+          full_name: String(draft.full_name || "").trim() || null,
+          jersey_number: Number(draft.jersey_number),
+          photo_path: String(draft.photo_path || "").trim() || null,
+          club_id: draft.club_id,
+          club_name: String(draft.club_name || "").trim() || null,
+          position: String(draft.position || "").trim() || null,
+          is_published:
+            draft.is_published === true || draft.is_published === "true",
+        };
+
+        if (!payload.club_id) {
+          setError("The selected player must have an assigned club.");
+          return;
+        }
+      }
+
+
+
+
       if (section === "clubs") {
         const name = String(draft.name ?? "").trim();
         const shortName = String(draft.short_name ?? "").trim();
@@ -751,8 +1492,22 @@ export default function AdminDashboard({ user, onSignOut }) {
           return;
         }
 
-        payload = { name, short_name: shortName, slug, description };
+        let logoPath = String(draft.logo_path || "").trim() || null;
+
+        if (logoFile) {
+          const uploadedPath = await uploadImage(logoFile, "club-logos");
+          logoPath = uploadedPath;
+        }
+
+        payload = {
+          name,
+          short_name: shortName,
+          slug,
+          description,
+          logo_path: logoPath,
+        };
       }
+
 
       if (section === "admin_users") {
         const userId = String(draft.user_id ?? "").trim();
@@ -768,142 +1523,197 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       if (section === "matches") {
         const kickoffDate = new Date(draft.kickoff_at);
+
         if (Number.isNaN(kickoffDate.getTime())) {
           setError("Enter a valid kick-off date and time.");
           return;
         }
 
-        // FIX: Supabase matches.notes has a NOT NULL constraint.
-        // An empty notes field must be '' rather than null.
-        payload.notes = String(draft.notes ?? "").trim() || "";
-        payload.venue = String(draft.venue ?? "").trim() || DEFAULT_VENUE;
-        payload.kickoff_at = kickoffDate.toISOString();
+        if (
+          !draft.competition ||
+          !draft.season ||
+          !draft.home_club_id ||
+          !draft.away_club_id
+        ) {
+          setError("Complete the competition, season and both clubs.");
+          return;
+        }
 
-        payload.home_score = draft.home_score === "" || draft.home_score == null
-          ? null
-          : Number(draft.home_score);
-        payload.away_score = draft.away_score === "" || draft.away_score == null
-          ? null
-          : Number(draft.away_score);
+        if (draft.home_club_id === draft.away_club_id) {
+          setError("Home and away clubs must be different.");
+          return;
+        }
+
+        const refereeIds = [
+          draft.referee_1_roster_id,
+          draft.referee_2_roster_id,
+          draft.referee_3_roster_id,
+        ];
+
+        if (refereeIds.some((id) => !id)) {
+          setError("Select all three referees before saving the fixture.");
+          return;
+        }
+
+        if (new Set(refereeIds).size !== 3) {
+          setError("Each referee must be a different person.");
+          return;
+        }
 
         if (
-          (payload.home_score != null && (!Number.isInteger(payload.home_score) || payload.home_score < 0)) ||
-          (payload.away_score != null && (!Number.isInteger(payload.away_score) || payload.away_score < 0))
+          !draft.home_coach_roster_id ||
+          !draft.away_coach_roster_id
+        ) {
+          setError("Both clubs must have an approved coach assigned.");
+          return;
+        }
+
+        payload.notes = String(draft.notes ?? "").trim();
+
+        payload.venue =
+          String(draft.venue ?? "").trim() || DEFAULT_VENUE;
+
+        payload.kickoff_at = kickoffDate.toISOString();
+
+        const startedAt = draft.match_started_at
+          ? new Date(draft.match_started_at)
+          : null;
+
+        if (startedAt && Number.isNaN(startedAt.getTime())) {
+          setError("Enter a valid match start date and time.");
+          return;
+        }
+
+        payload.match_started_at = startedAt
+          ? startedAt.toISOString()
+          : null;
+
+        payload.updated_by = user?.id || null;
+
+        payload.home_score =
+          draft.home_score === "" || draft.home_score == null
+            ? null
+            : Number(draft.home_score);
+
+        payload.away_score =
+          draft.away_score === "" || draft.away_score == null
+            ? null
+            : Number(draft.away_score);
+
+        if (
+          (payload.home_score != null &&
+            (!Number.isInteger(payload.home_score) ||
+              payload.home_score < 0)) ||
+          (payload.away_score != null &&
+            (!Number.isInteger(payload.away_score) ||
+              payload.away_score < 0))
         ) {
           setError("Scores must be non-negative whole numbers.");
           return;
         }
       }
 
-      if (section === "match_lineups") {
-        if (payload.jersey_number != null) {
-          payload.jersey_number = Number(payload.jersey_number);
-          if (!Number.isInteger(payload.jersey_number) || payload.jersey_number < 1 || payload.jersey_number > 99) {
-            setError("Jersey number must be between 1 and 99.");
-            return;
-          }
-        }
 
-        payload.is_published = draft.is_published === true || draft.is_published === "true";
-      }
 
-      if (section === "match_events" && payload.minute != null) {
-        payload.minute = Number(payload.minute);
-        if (!Number.isInteger(payload.minute) || payload.minute < 0) {
-          setError("Event minute must be a non-negative whole number.");
-          return;
-        }
-      }
+      // Save the record to Supabase.
+      const primaryKey =
+        editing.primaryKey || getPrimaryKey(section, editing.row);
 
-      let result;
+      let saveQuery;
 
       if (editing.mode === "create") {
-        result = await supabase.from(section).insert(payload);
+        saveQuery = supabase.from(section).insert(payload);
       } else {
-        const primaryKey = editing.primaryKey || getPrimaryKey(section, editing.row);
-
-        if (!primaryKey) {
-          setError("Could not identify the record's primary key.");
-          return;
+        if (!primaryKey || editing.row?.[primaryKey] == null) {
+          throw new Error("Cannot update this record: its primary key is missing.");
         }
 
-        if (section === "admin_users") delete payload.user_id;
-
-        result = await supabase
+        saveQuery = supabase
           .from(section)
           .update(payload)
           .eq(primaryKey, editing.row[primaryKey]);
       }
 
-      if (result.error) {
-        setError(result.error.message);
-        return;
+      const { data: savedData, error: saveError } = await saveQuery.select();
+
+      if (saveError) throw saveError;
+
+      if (editing.mode === "edit" && (!savedData || savedData.length === 0)) {
+        throw new Error(
+          "No record was updated. Check your Supabase permissions and Row Level Security policies."
+        );
       }
 
-      const wasCreate = editing.mode === "create";
+
       setEditing(null);
       setDraft({});
+      setLogoFile(null);
 
       setNotice(
-        section === "admin_users"
-          ? wasCreate
-            ? "Administrator allowlist entry added. This does not create an Auth account."
-            : "Administrator display name updated."
-          : wasCreate
-            ? "Record created successfully."
-            : "Record updated successfully."
+        editing.mode === "create"
+          ? "Record created successfully."
+          : "Record updated successfully."
       );
 
       await loadRows();
     } catch (saveError) {
-      setError(saveError?.message || "An unexpected error occurred while saving.");
+      setError(saveError?.message || "Could not save the record.");
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteRow(row) {
-    if (!supabase) return;
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return;
+    }
 
     const primaryKey = getPrimaryKey(section, row);
-    if (!primaryKey) {
-      setError("Delete is disabled because the primary key could not be identified.");
+
+    if (!primaryKey || row?.[primaryKey] == null) {
+      setError("Cannot delete this record because its primary key is missing.");
       return;
     }
 
-    if (section === "admin_users" && row.user_id === user?.id) {
-      setError("You cannot remove your own administrator access while signed in.");
-      return;
-    }
+    const recordName =
+      row.full_name ||
+      row.name ||
+      row.competition ||
+      row.display_name ||
+      row[primaryKey];
 
-    const description = section === "clubs"
-      ? row.name
-      : section === "admin_users"
-        ? row.display_name
-        : row.full_name || row.football_name || row.id;
-
-    if (!window.confirm(`Delete ${description || "this record"}? This cannot be undone. Linked records may prevent deletion.`)) {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${recordName}" from ${section}? This action cannot be undone.`
+      )
+    ) {
       return;
     }
 
     setError("");
     setNotice("");
 
-    const { error: deleteError } = await supabase
-      .from(section)
-      .delete()
-      .eq(primaryKey, row[primaryKey]);
+    try {
+      const { data, error: deleteError } = await supabase
+        .from(section)
+        .delete()
+        .eq(primaryKey, row[primaryKey])
+        .select();
 
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
+      if (deleteError) throw deleteError;
+
+      if (!data || data.length === 0) {
+        throw new Error(
+          "No record was deleted. Check your Supabase permissions and Row Level Security policies."
+        );
+      }
+
+      setNotice("Record deleted successfully.");
+      await loadRows();
+    } catch (deleteError) {
+      setError(deleteError?.message || "Could not delete the record.");
     }
-
-    setNotice(section === "admin_users"
-      ? "Administrator allowlist entry removed. The Auth account was not deleted."
-      : "Record deleted successfully.");
-
-    await loadRows();
   }
 
   function exportRows(filename, data) {
@@ -926,8 +1736,14 @@ export default function AdminDashboard({ user, onSignOut }) {
   }
 
   const canAdd = [
-    "clubs", "approved_roster", "approved_player_profiles",
-    "matches", "match_lineups", "match_events", "suspensions", "admin_users",
+    "clubs",
+    "approved_roster",
+    "approved_player_profiles",
+    "matches",
+    "match_lineups",
+    "match_events",
+    "suspensions",
+    "admin_users",
   ].includes(section);
 
   return (
@@ -966,8 +1782,19 @@ export default function AdminDashboard({ user, onSignOut }) {
             <h1>Admin dashboard</h1>
           </div>
           <div className="admin-user">
-            <span className="admin-avatar">{(user?.email || "A").slice(0, 1).toUpperCase()}</span>
+            <span className="admin-avatar">
+              {(user?.email || "A").slice(0, 1).toUpperCase()}
+            </span>
             <span>{user?.email || "Administrator"}</span>
+            <span
+              style={{
+                fontSize: "11px",
+                overflowWrap: "anywhere",
+                maxWidth: "250px",
+              }}
+            >
+              User ID: {user?.id || "No user ID found"}
+            </span>
           </div>
         </header>
 
@@ -977,17 +1804,39 @@ export default function AdminDashboard({ user, onSignOut }) {
             <p>{page?.description}</p>
           </div>
           {canAdd && (
-            <button type="button" className="primary-button" onClick={beginCreate}>
-              {section === "clubs" ? "+ Add club" : section === "admin_users" ? "+ Authorize admin" : "+ Add record"}
+            <button
+              type="button"
+              className="primary-button"
+              onClick={beginCreate}
+            >
+              {section === "clubs"
+                ? "+ Add club"
+                : section === "admin_users"
+                  ? "+ Authorize admin"
+                  : "+ Add record"}
             </button>
           )}
         </div>
 
-        {error && <p className="admin-alert error" role="alert">{error}</p>}
-        {notice && <p className="admin-alert success" role="status">{notice}</p>}
+        {error && (
+          <p className="admin-alert error" role="alert">{error}</p>
+        )}
+        {notice && (
+          <p className="admin-alert success" role="status">{notice}</p>
+        )}
 
         {section === "overview" && (
-          <>
+          <div className="admin-table-card">
+            <div className="admin-table-toolbar">
+              <strong>League overview</strong>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={loadRows}
+              >
+                Refresh
+              </button>
+            </div>
             <div className="admin-stat-row admin-stat-row-wide">
               {[
                 ["Registered clubs", overview.clubs.length],
@@ -998,7 +1847,13 @@ export default function AdminDashboard({ user, onSignOut }) {
                 ["Completed matches", completed],
                 ["Lineup records", overview.lineups.length],
                 ["Match events", overview.events.length],
-                ["Active suspensions", overview.suspensions.filter((item) => String(item.status).toLowerCase() === "active").length],
+                [
+                  "Active suspensions",
+                  overview.suspensions.filter(
+                    (item) =>
+                      String(item.status).toLowerCase() === "active"
+                  ).length,
+                ],
               ].map(([label, value]) => (
                 <div className="admin-stat" key={label}>
                   <span>{label}</span>
@@ -1006,96 +1861,94 @@ export default function AdminDashboard({ user, onSignOut }) {
                 </div>
               ))}
             </div>
-
-            <div className="admin-table-card admin-overview-card">
-              <div className="admin-table-toolbar">
-                <strong>League standings preview</strong>
-                <button type="button" className="secondary-button" onClick={() => changeSection("standings")}>
-                  Open standings
-                </button>
-              </div>
-
-              {loading ? <p className="admin-empty">Loading live statistics…</p> : (
-                <div className="admin-table-scroll">
-                  <table className="admin-data-table">
-                    <thead>
-                      <tr>{["#", "Club", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map((h) => <th key={h}>{h}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {standings.slice(0, 6).map((row) => (
-                        <tr key={row.club_id}>
-                          <td>{row.position}</td><td>{row.club_name}</td><td>{row.played}</td>
-                          <td>{row.won}</td><td>{row.drawn}</td><td>{row.lost}</td>
-                          <td>{row.gf}</td><td>{row.ga}</td><td>{row.gd}</td><td><strong>{row.points}</strong></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            <p className="admin-form-note">Standings are calculated from completed matches with both scores recorded. This calculation does not write to the database.</p>
-          </>
+          </div>
         )}
 
         {section === "standings" && (
           <div className="admin-table-card">
             <div className="admin-table-toolbar">
               <span>3 points for a win · 1 point for a draw</span>
-              <button type="button" className="secondary-button" onClick={() => exportRows("manav-rachna-league-standings.csv", standings)}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  exportRows("manav-rachna-league-standings.csv", standings)
+                }
+              >
                 Export standings CSV
               </button>
             </div>
-            {loading ? <p className="admin-empty">Calculating standings…</p> : (
-              <div className="admin-table-scroll">
-                <table className="admin-data-table">
-                  <thead><tr>{["Pos", "Club", "Played", "Won", "Drawn", "Lost", "GF", "GA", "GD", "Points"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {standings.map((row) => (
-                      <tr key={row.club_id}>
-                        <td>{row.position}</td><td>{row.club_name}</td><td>{row.played}</td>
-                        <td>{row.won}</td><td>{row.drawn}</td><td>{row.lost}</td>
-                        <td>{row.gf}</td><td>{row.ga}</td><td>{row.gd}</td><td><strong>{row.points}</strong></td>
-                      </tr>
+            <div className="admin-table-scroll">
+              <table className="admin-data-table">
+                <thead>
+                  <tr>
+                    {[
+                      "Pos", "Club", "Played", "Won", "Drawn",
+                      "Lost", "GF", "GA", "GD", "Points",
+                    ].map((heading) => (
+                      <th key={heading}>{heading}</th>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <p className="admin-form-note">Standings are calculated from clubs and matches. The separate club_standings table is not updated.</p>
+                  </tr>
+                </thead>
+                <tbody>
+                  {standings.map((row) => (
+                    <tr key={row.club_id}>
+                      <td>{row.position}</td>
+                      <td>{row.club_name}</td>
+                      <td>{row.played}</td>
+                      <td>{row.won}</td>
+                      <td>{row.drawn}</td>
+                      <td>{row.lost}</td>
+                      <td>{row.gf}</td>
+                      <td>{row.ga}</td>
+                      <td>{row.gd}</td>
+                      <td><strong>{row.points}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {section === "reports" && (
           <div className="admin-table-card">
             <div className="admin-table-toolbar">
-              <div>
-                <strong>Download reports</strong>
-                <p className="admin-form-note">CSV files can be opened in Excel, Numbers and Google Sheets.</p>
+              <strong>Download reports</strong>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={loadRows}
+              >
+                Refresh report data
+              </button>
+            </div>
+            {[
+              ["Clubs", "clubs", overview.clubs],
+              ["Approved roster", "approved-roster", overview.roster],
+              ["Player profiles", "player-profiles", overview.profiles],
+              ["Registrations", "registrations", overview.registrations],
+              ["Matches", "matches", overview.matches],
+              ["Lineups", "lineups", overview.lineups],
+              ["Match events", "match-events", overview.events],
+              ["Standings", "standings", standings],
+              ["Suspensions", "suspensions", overview.suspensions],
+              ["Administrators", "admins", overview.admins],
+            ].map(([label, filename, data]) => (
+              <div className="admin-report-item" key={filename}>
+                <strong>{label}</strong>
+                <span>{data.length} records</span>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() =>
+                    exportRows(`mr-football-${filename}.csv`, data)
+                  }
+                >
+                  Export CSV
+                </button>
               </div>
-              <button type="button" className="secondary-button" onClick={loadRows}>Refresh report data</button>
-            </div>
-            <div className="admin-report-grid">
-              {[
-                ["Clubs directory", "clubs", overview.clubs],
-                ["Approved roster", "approved-roster", overview.roster],
-                ["Player profiles", "player-profiles", overview.profiles],
-                ["Registrations", "registrations", overview.registrations],
-                ["Matches & results", "matches-results", overview.matches],
-                ["Lineups", "match-lineups", overview.lineups],
-                ["Match events", "match-events", overview.events],
-                ["League standings", "league-standings", standings],
-                ["Suspensions", "suspensions", overview.suspensions],
-                ["Administrator allowlist", "admin-users", overview.admins],
-              ].map(([label, filename, data]) => (
-                <div className="admin-report-item" key={filename}>
-                  <div><strong>{label}</strong><span>{data.length} records</span></div>
-                  <button type="button" className="secondary-button" onClick={() => exportRows(`mr-football-${filename}.csv`, data)}>
-                    Export CSV
-                  </button>
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         )}
 
@@ -1104,32 +1957,127 @@ export default function AdminDashboard({ user, onSignOut }) {
             <div className="admin-table-toolbar">
               <input
                 aria-label="Search records"
-                placeholder={`Search ${page?.label.toLowerCase()}…`}
+                placeholder={`Search ${page?.label?.toLowerCase() || "records"}…`}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
               <div className="admin-toolbar-actions">
-                <button type="button" className="secondary-button" onClick={() => exportRows(`mr-football-${section}.csv`, filteredRows)}>Export CSV</button>
-                <button type="button" className="secondary-button" onClick={loadRows}>Refresh</button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() =>
+                    exportRows(`mr-football-${section}.csv`, filteredRows)
+                  }
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={loadRows}
+                >
+                  Refresh
+                </button>
               </div>
             </div>
 
-            {loading ? <p className="admin-empty">Loading records…</p> : filteredRows.length === 0 ? (
-              <p className="admin-empty">No records found. Add a record or check the table permissions.</p>
+            {loading ? (
+              <p className="admin-empty">Loading records…</p>
+            ) : filteredRows.length === 0 ? (
+              <p className="admin-empty">No records found.</p>
             ) : (
               <div className="admin-table-scroll">
                 <table className="admin-data-table">
-                  <thead><tr>{columns.slice(0, 8).map((column) => <th key={column}>{labelize(column)}</th>)}<th>Actions</th></tr></thead>
+                  <thead>
+                    <tr>
+                      {columns.slice(0, 8).map((column) => (
+                        <th key={column}>{labelize(column)}</th>
+                      ))}
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {filteredRows.map((row, index) => (
-                      <tr key={row.id ?? row.user_id ?? row.uuid ?? index}>
+                      <tr
+                        key={row.id ?? row.user_id ?? row.uuid ?? index}
+                      >
+
+
                         {columns.slice(0, 8).map((column) => (
-                          <td key={column}>{String(row[column] ?? "—").slice(0, 90)}</td>
+                          <td key={column}>
+                            {column === "photo_path" ? (
+                              <AdminImage
+                                path={row.photo_path}
+                                alt={`${row.full_name || row.football_name || "Player"} photo`}
+                                className="admin-player-photo"
+                              />
+                            ) : column === "logo_path" ? (
+                              <AdminImage
+                                path={row.logo_path}
+                                alt={`${row.name || "Club"} logo`}
+                                className="admin-club-logo"
+                              />
+                            ) : column === "club_id" ? (
+                              (() => {
+                                const club = clubs.find(
+                                  (item) => String(item.id) === String(row.club_id)
+                                );
+
+                                return (
+                                  <span className="admin-club-cell">
+                                    {club?.logo_path && (
+                                      <AdminImage
+                                        path={club.logo_path}
+                                        alt={`${club.name || "Club"} logo`}
+                                        className="admin-club-logo"
+                                      />
+                                    )}
+                                    <span>{club?.name || row.club_id || "—"}</span>
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              String(row[column] ?? "—").slice(0, 90)
+                            )}
+                          </td>
                         ))}
+
                         <td>
                           <div className="admin-row-actions">
-                            <button type="button" onClick={() => beginEdit(row)}>Edit</button>
-                            <button type="button" className="danger-link" onClick={() => deleteRow(row)}>Delete</button>
+                            {section === "registrations" && row.status === "Pending" && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="primary-button"
+                                  onClick={() => reviewRegistration(row, "Approved")}
+                                >
+                                  Approve
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="danger-link"
+                                  onClick={() => reviewRegistration(row, "Rejected")}
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => beginEdit(row)}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              className="danger-link"
+                              onClick={() => deleteRow(row)}
+                            >
+                              Delete
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1140,65 +2088,54 @@ export default function AdminDashboard({ user, onSignOut }) {
             )}
           </div>
         )}
-
-        {section === "admin_users" && (
-          <p className="admin-form-note">
-            Adding an administrator allowlist entry does not create a Supabase Auth account. Use an existing Auth user's UUID. Secure this table with appropriate Row Level Security policies and never expose the service-role key in frontend code.
-          </p>
-        )}
-
-        {section === "approved_roster" && (
-          <p className="admin-form-note">Roster entries use club_id to link members to clubs. Keep roster records and public player profiles consistent.</p>
-        )}
-
-        {section === "match_lineups" && (
-          <p className="admin-form-note">
-            Record one row per player per match. Select a match, one of its clubs, an approved registered player, lineup role, position, jersey number and publication status. Record goals, cards and substitutions separately in Match events.
-          </p>
-        )}
-
-        {section === "match_events" && (
-          <p className="admin-form-note">Events use match_id, club_id, event_type, minute and notes. Use consistent event labels for goals, cards and substitutions.</p>
-        )}
-
-        {section === "suspensions" && (
-          <p className="admin-form-note">Keep matches_total, matches_served and status updated. This dashboard does not automatically issue suspensions from red cards.</p>
-        )}
-
         {editing && (
-          <div
-            className="admin-modal-backdrop"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) closeEditor();
-            }}
-          >
-            <div className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
-              <div className="admin-modal-header">
-                <div>
-                  <span className="eyebrow">
-                    {section === "matches" ? "FIXTURE MANAGEMENT" : section === "match_lineups" ? "SQUAD MANAGEMENT" : "RECORD MANAGEMENT"}
-                  </span>
-                  <h2 id="admin-modal-title">
-                    {editing.mode === "create"
-                      ? section === "clubs" ? "Add club" : section === "admin_users" ? "Authorize administrator" : "Add record"
-                      : "Edit record"}
-                  </h2>
-                </div>
-                <button type="button" className="secondary-button" onClick={closeEditor} disabled={saving}>Close</button>
+          <div className="admin-modal-overlay">
+            <form className="admin-editor-form" onSubmit={saveDraft}>
+              <div className="admin-table-toolbar">
+                <h3>
+                  {editing.mode === "create" ? "Add record" : "Edit record"}
+                </h3>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEditor}
+                  disabled={saving}
+                >
+                  Close
+                </button>
               </div>
 
-              <form onSubmit={saveDraft}>
-                <div className="admin-form-grid">
-                  {Object.entries(draft).map(([key, value]) => renderDraftField(key, value))}
-                </div>
-                <div className="admin-modal-actions">
-                  <button type="button" className="secondary-button" onClick={closeEditor} disabled={saving}>Cancel</button>
-                  <button type="submit" className="primary-button" disabled={saving}>
-                    {saving ? "Saving..." : "Save record"}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="admin-editor-grid">
+                {Object.entries(draft).map(([key, value]) => (
+                  <div key={key}>
+                    {renderDraftField(key, value)}
+                  </div>
+                ))}
+              </div>
+
+              <div className="admin-editor-actions">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Saving..."
+                    : editing.mode === "create"
+                      ? "Create record"
+                      : "Save changes"}
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEditor}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </section>

@@ -178,19 +178,40 @@ function SectionTitle({ eyebrow, title, description }) {
 }
 
 function ClubCard({ club, onSelect }) {
+  const logoUrl = club.logo_path
+    ? supabase.storage
+      .from("football-images")
+      .getPublicUrl(club.logo_path)
+      .data?.publicUrl
+    : "";
+
   return (
     <article className="club-card">
       <div className="club-card-top">
-        <span
-          className="club-badge"
-          style={{ color: club.color, borderColor: club.color }}
-        >
-          {club.name.slice(0, 2).toUpperCase()}
-        </span>
+        {logoUrl ? (
+          <img
+            className="admin-club-logo"
+            src={logoUrl}
+            alt={`${club.name} logo`}
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : (
+          <span
+            className="club-badge"
+            style={{ color: club.color, borderColor: club.color }}
+          >
+            {club.name.slice(0, 2).toUpperCase()}
+          </span>
+        )}
+
         <span className="club-status">FOOTBALL CLUB</span>
       </div>
+
       <h3>{club.name}</h3>
       <p>{club.description}</p>
+
       <button
         className="text-button"
         type="button"
@@ -517,7 +538,9 @@ function MatchReport({ match }) {
 function MatchCard({ match }) {
   const [lineupOpen, setLineupOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+
   const completed = match.status === "Completed";
+  const isLive = match.status === "Live";
 
   return (
     <article className="public-match-card">
@@ -531,14 +554,18 @@ function MatchCard({ match }) {
           </p>
         </div>
 
+
         <span
           className={`match-status ${completed
             ? "match-status-completed"
-            : "match-status-scheduled"
+            : isLive
+              ? "match-status-live"
+              : "match-status-scheduled"
             }`}
         >
-          {completed ? "Full Time" : "Scheduled"}
+          {completed ? "Full Time" : isLive ? "LIVE" : "Scheduled"}
         </span>
+
       </div>
 
       <div className="fixture-scoreline">
@@ -551,7 +578,7 @@ function MatchCard({ match }) {
         </div>
 
         <div className="fixture-score">
-          {completed ? (
+          {completed || isLive ? (
             <>
               <strong>
                 {match.homeScore} <span>–</span> {match.awayScore}
@@ -632,33 +659,84 @@ function MatchCard({ match }) {
 function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
   const [matchTab, setMatchTab] = useState("upcoming");
   const [selectedClub, setSelectedClub] = useState("All Clubs");
-  const completedStatuses = ["completed", "complete", "finished", "full time", "full-time", "ft"];
+  const completedStatuses = [
+    "completed",
+    "complete",
+    "finished",
+    "full time",
+    "full-time",
+    "ft",
+  ];
+
+  const liveStatuses = [
+    "live",
+    "in progress",
+    "in-progress",
+    "ongoing",
+    "1st half",
+    "2nd half",
+    "halftime",
+    "half time",
+    "ht",
+  ];
   const sourceMatches = liveMatches.length ? liveMatches.map((row) => {
     const value = (keys, fallback = null) => { for (const key of keys) if (row?.[key] != null && row[key] !== "") return row[key]; return fallback; };
     const clubById = (id, fallbackName) => publicClubs.find((club) => String(club.id) === String(id))?.name || fallbackName || "Club TBC";
     const kickoff = value(["kickoff_at", "match_date", "scheduled_at", "date"]);
     const date = kickoff ? new Date(kickoff) : null;
-    const status = String(value(["status"], "Scheduled"));
-    const isDone = completedStatuses.includes(status.trim().toLowerCase());
+    const status = String(value(["status"], "scheduled")).trim().toLowerCase();
+
+    const homeScore = value([
+      "home_score",
+      "home_full_time_score",
+      "home_goals",
+    ]);
+
+    const awayScore = value([
+      "away_score",
+      "away_full_time_score",
+      "away_goals",
+    ]);
+
+    const isDone = completedStatuses.includes(status);
+    const isLive = liveStatuses.includes(status);
+    const hasScores =
+      homeScore !== null &&
+      awayScore !== null &&
+      homeScore !== "" &&
+      awayScore !== "" &&
+      Number.isFinite(Number(homeScore)) &&
+      Number.isFinite(Number(awayScore));
+
+    const displayStatus = isDone
+      ? hasScores
+        ? "Completed"
+        : "Result Pending"
+      : isLive
+        ? "Live"
+        : "Scheduled";
     return {
       id: row.id, competition: value(["competition", "competition_name"], "MRU Football League"),
       season: value(["season", "season_name"], "2026–2027"),
       home: clubById(value(["home_club_id", "home_team_id"]), value(["home_club_name", "home_club", "home_team"], "Home club")),
       away: clubById(value(["away_club_id", "away_team_id"]), value(["away_club_name", "away_club", "away_team"], "Away club")),
-      date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) : "Date TBC",
-      time: date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}) : "Time TBC",
+      date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Date TBC",
+      time: date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "Time TBC",
       venue: value(["venue", "ground", "location"], "Manav Rachna Football Pitch"),
-      status: isDone ? "Completed" : "Scheduled",
-      homeScore: value(["home_score", "home_full_time_score", "home_goals"]),
-      awayScore: value(["away_score", "away_full_time_score", "away_goals"]),
+      status: displayStatus,
+      homeScore: hasScores ? Number(homeScore) : null,
+      awayScore: hasScores ? Number(awayScore) : null,
       halfTime: value(["half_time_score", "half_time"], null),
       homeFormation: value(["home_formation"], "4-3-3"), awayFormation: value(["away_formation"], "4-3-3"),
       homeLineup: [], awayLineup: [], events: []
     };
-  }) : SAMPLE_MATCHES;
+  }) : [];
 
   const matches = sourceMatches.filter((match) => {
-    const tabMatches = matchTab === "upcoming" ? match.status !== "Completed" : match.status === "Completed";
+    const tabMatches =
+      matchTab === "upcoming"
+        ? match.status === "Scheduled" || match.status === "Live"
+        : match.status === "Completed";
     const clubMatches = selectedClub === "All Clubs" || match.home === selectedClub || match.away === selectedClub;
     return tabMatches && clubMatches;
   });
@@ -723,14 +801,16 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
         </div>
 
         <p className="data-note">
-          {liveMatches.length ? "Match centre is displaying the latest available Supabase fixtures and results." : "Sample fixtures are shown until live match records are available from Supabase."}
+          {liveMatches.length
+            ? "Fixtures and results are displayed from available Supabase match records."
+            : "No official match records are available yet. Fixtures and results will appear here when they are recorded."}
         </p>
       </div>
     </section>
   );
 }
 
-function RegistrationForm() {
+function RegistrationForm({ publicClubs = [] }) {
   const [form, setForm] = useState({
     fullName: "",
     footballName: "",
@@ -747,6 +827,7 @@ function RegistrationForm() {
   const [preview, setPreview] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -796,10 +877,17 @@ function RegistrationForm() {
     setPreview(URL.createObjectURL(file));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setNotice("");
+
+    if (!supabase || !supabaseConfigured) {
+      setError(
+        "Database connection is not configured. Check your .env.local file."
+      );
+      return;
+    }
 
     if (!photo) {
       setError("A profile picture is compulsory. Please upload one.");
@@ -812,7 +900,7 @@ function RegistrationForm() {
     }
 
     if (form.footballName.trim().length < 2) {
-      setError("Please enter the name people know you by in football.");
+      setError("Please enter your football name.");
       return;
     }
 
@@ -841,13 +929,113 @@ function RegistrationForm() {
       return;
     }
 
-    setNotice(
-      "Validation successful. Your registration has NOT been saved because the database and photo storage are not connected yet."
-    );
+    setSubmitting(true);
+
+    try {
+      const { data: club, error: clubError } = await supabase
+        .from("clubs")
+        .select("id, name")
+        .eq("name", form.club)
+        .single();
+
+      if (clubError || !club) {
+        throw new Error(
+          "Please select a valid club from the available list."
+        );
+      }
+
+      const extension =
+        photo.name.split(".").pop()?.toLowerCase() || "jpg";
+      const safeExtension = /^[a-z0-9]+$/.test(extension)
+        ? extension
+        : "jpg";
+
+      const filePath =
+        `registrations/${crypto.randomUUID()}.${safeExtension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("football-images")
+        .upload(filePath, photo, {
+          contentType: photo.type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error(`Photo upload failed: ${uploadError.message}`);
+      }
+
+      const registration = {
+        full_name: form.fullName.trim(),
+        football_name: form.footballName.trim(),
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone,
+        role: form.role,
+        club_id: club.id,
+        club_name: club.name,
+        jersey_number:
+          form.role === "Player" ? Number(form.jerseyNumber) : null,
+        experience: form.experience || null,
+        message: form.message.trim() || null,
+        photo_path: filePath,
+        status: "Pending",
+        reviewed_by: null,
+        reviewed_at: null,
+        is_team_captain: false,
+      };
+
+      const { error: insertError } = await supabase
+        .from("registrations")
+        .insert(registration);
+
+      if (insertError) {
+        // Remove the uploaded image if saving the registration fails.
+        await supabase.storage
+          .from("football-images")
+          .remove([filePath]);
+
+        throw new Error(
+          `Registration database insert failed: ${insertError.message}`
+        );
+      }
+
+      setNotice(
+        "Registration submitted successfully! Your details and profile picture have been saved for review."
+      );
+
+      setForm({
+        fullName: "",
+        footballName: "",
+        email: "",
+        phone: "",
+        role: "Player",
+        club: "",
+        jerseyNumber: "",
+        experience: "",
+        message: "",
+      });
+
+      setPhoto(null);
+      setPreview("");
+
+      const fileInput = document.getElementById("profilePicture");
+      if (fileInput) fileInput.value = "";
+    } catch (err) {
+      console.error("Registration submission failed:", err);
+      setError(
+        err?.message ||
+        "Registration failed. Please check your Supabase configuration and try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <form className="registration-form" onSubmit={handleSubmit} noValidate>
+    <form
+      className="registration-form"
+      onSubmit={handleSubmit}
+      noValidate
+    >
       <div className="form-intro">
         <span className="eyebrow">REGISTRATION FORM</span>
         <h3>Join the football community</h3>
@@ -947,7 +1135,9 @@ function RegistrationForm() {
                 ...previous,
                 role: nextRole,
                 jerseyNumber:
-                  nextRole === "Player" ? previous.jerseyNumber : "",
+                  nextRole === "Player"
+                    ? previous.jerseyNumber
+                    : "",
               }));
               setError("");
               setNotice("");
@@ -969,9 +1159,14 @@ function RegistrationForm() {
             onChange={updateField}
             required
           >
-            <option value="">Select a club</option>
-            {CLUBS.map((club) => (
-              <option key={club.name} value={club.name}>
+            <option value="">
+              {publicClubs.length
+                ? "Select a club"
+                : "No clubs currently available"}
+            </option>
+
+            {publicClubs.map((club) => (
+              <option key={club.id} value={club.name}>
                 {club.name}
               </option>
             ))}
@@ -980,7 +1175,9 @@ function RegistrationForm() {
 
         {form.role === "Player" && (
           <div className="form-field">
-            <label htmlFor="jerseyNumber">Jersey number (1–99) *</label>
+            <label htmlFor="jerseyNumber">
+              Jersey number (1–99) *
+            </label>
             <select
               id="jerseyNumber"
               name="jerseyNumber"
@@ -997,7 +1194,9 @@ function RegistrationForm() {
                 )
               )}
             </select>
-            <small>The club must confirm the number is available.</small>
+            <small>
+              The club must confirm the number is available.
+            </small>
           </div>
         )}
 
@@ -1042,109 +1241,217 @@ function RegistrationForm() {
         </p>
       )}
 
-      <button className="primary-button submit-button" type="submit">
-        Validate registration details <span aria-hidden="true">→</span>
+      <button
+        className="primary-button submit-button"
+        type="submit"
+        disabled={submitting}
+      >
+        {submitting
+          ? "Submitting registration…"
+          : "Submit registration"}
+        {!submitting && <span aria-hidden="true"> →</span>}
       </button>
 
       <p className="form-disclaimer">
-        This demo validates your details locally. It does not upload your
-        picture or save your registration. Secure storage and submission
-        require the backend connection.
+        Your registration and profile picture will be submitted for review.
+        Approval is required before your profile is treated as official.
       </p>
     </form>
   );
 }
 
+
+
 function TopPlayers({ publicClubs = CLUBS }) {
   const [selectedClub, setSelectedClub] = useState("All Clubs");
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     let active = true;
+
     async function loadPlayers() {
-      if (!supabase) {
-        if (active) { setPlayers(SAMPLE_TOP_PLAYERS); setIsDemo(true); setLoading(false); }
+      setLoading(true);
+      setLoadError("");
+
+      if (!supabase || !supabaseConfigured) {
+        if (active) {
+          setPlayers([]);
+          setLoadError(
+            "Connect Supabase to display official player statistics."
+          );
+          setLoading(false);
+        }
         return;
       }
-      const safeQuery = async (table) => {
-        const { data, error } = await supabase.from(table).select("*").limit(2500);
-        return error ? [] : (data || []);
-      };
-      const [roster, profiles, events] = await Promise.all([
-        safeQuery("approved_roster"), safeQuery("approved_player_profiles"), safeQuery("match_events")
-      ]);
-      if (!active) return;
-      const clubName = (row) => {
-        const id = row.club_id || row.team_id;
-        return publicClubs.find((club) => id && String(club.id) === String(id))?.name ||
-          row.club_name || row.club || row.team_name || "Club not assigned";
-      };
-      const name = (row) => row.display_name || row.full_name || row.player_name || row.football_name || row.name || "Unnamed player";
-      const counts = new Map();
-      events.forEach((event) => {
-        const playerKey = String(event.player_id || event.roster_id || event.player_name || event.full_name || event.name || "");
-        if (!playerKey) return;
-        const current = counts.get(playerKey) || { goals: 0, assists: 0, yellowCards: 0, redCards: 0 };
-        const type = String(event.event_type || event.type || event.event || "").toLowerCase();
-        if (type.includes("goal") && !type.includes("own")) current.goals++;
-        if (type.includes("assist")) current.assists++;
-        if (type.includes("yellow")) current.yellowCards++;
-        if (type.includes("red")) current.redCards++;
-        counts.set(playerKey, current);
-      });
-      const seen = new Set();
-      const list = [...roster, ...profiles].filter((row) => {
-        const key = String(row.player_id || row.user_id || row.football_name || row.full_name || row.name || row.id || name(row));
-        if (seen.has(key)) return false;
-        seen.add(key); return true;
-      }).map((row) => {
-        const key = String(row.player_id || row.user_id || row.id || "");
-        const eventCounts = counts.get(key) || counts.get(name(row)) || {};
-        return {
-          name: name(row), club: clubName(row),
-          goals: Number(row.goals ?? row.total_goals ?? eventCounts.goals ?? 0),
-          assists: Number(row.assists ?? row.total_assists ?? eventCounts.assists ?? 0),
-          yellowCards: Number(row.yellow_cards ?? row.yellow_card_count ?? eventCounts.yellowCards ?? 0),
-          redCards: Number(row.red_cards ?? row.red_card_count ?? eventCounts.redCards ?? 0)
-        };
-      }).sort((a, b) => b.goals - a.goals || b.assists - a.assists);
-      setPlayers(list); setIsDemo(false); setLoading(false);
-    }
-    loadPlayers();
-    return () => { active = false; };
-  }, [publicClubs]);
 
-  const filteredPlayers = useMemo(() => players.filter((player) => selectedClub === "All Clubs" || player.club === selectedClub)
-    .sort((a, b) => b.goals - a.goals || b.assists - a.assists).slice(0, 10), [players, selectedClub]);
+      try {
+        const { data, error } = await supabase
+          .from("player_performance_leaderboard")
+          .select("*");
+
+        if (error) throw error;
+
+        const result = (data || []).map((row) => ({
+          id: row.registration_id,
+          name: row.player || "Unnamed player",
+          club: row.club || "Club not assigned",
+          goals: Number(row.goals) || 0,
+          assists: Number(row.assists) || 0,
+          yellowCards: Number(row.yellow_cards) || 0,
+          redCards: Number(row.red_cards) || 0,
+        }));
+
+        if (active) {
+          setPlayers(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Failed to load player performance:", error);
+
+        if (active) {
+          setPlayers([]);
+          setLoadError(
+            `Player statistics could not be loaded: ${error.message}`
+          );
+          setLoading(false);
+        }
+      }
+    }
+
+    loadPlayers();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const filteredPlayers = useMemo(
+    () =>
+      players
+        .filter(
+          (player) =>
+            selectedClub === "All Clubs" ||
+            player.club === selectedClub
+        )
+        .sort(
+          (a, b) =>
+            b.goals - a.goals ||
+            b.assists - a.assists ||
+            a.name.localeCompare(b.name)
+        )
+        .slice(0, 10),
+    [players, selectedClub]
+  );
 
   return (
     <section className="section" id="statistics">
       <div className="section-inner">
-        <SectionTitle eyebrow="PLAYER PERFORMANCE" title="TOP 10 PLAYERS" description="Discover the leading players across our football clubs using available roster and match-event records." />
+        <SectionTitle
+          eyebrow="PLAYER PERFORMANCE"
+          title="TOP 10 PLAYERS"
+          description="Discover the leading players across our football clubs using available roster and match-event records."
+        />
+
         <div className="leaderboard-toolbar">
           <label htmlFor="leaderboardClub">Filter by club</label>
-          <select id="leaderboardClub" value={selectedClub} onChange={(event) => setSelectedClub(event.target.value)}>
-            <option>All Clubs</option>
-            {publicClubs.map((club) => <option key={club.id || club.name}>{club.name}</option>)}
+
+          <select
+            id="leaderboardClub"
+            value={selectedClub}
+            onChange={(event) => setSelectedClub(event.target.value)}
+          >
+            <option value="All Clubs">All Clubs</option>
+
+            {publicClubs.map((club) => (
+              <option key={club.id || club.name} value={club.name}>
+                {club.name}
+              </option>
+            ))}
           </select>
         </div>
-        {loading ? <p className="empty-state">Loading player performance…</p> : filteredPlayers.length ? <div className="table-wrap">
-          <table className="standings-table leaderboard-table">
-            <thead><tr><th>Rank</th><th>Player</th><th>Club</th><th>Goals</th><th>Assists</th><th>Yellow Cards</th><th>Red Cards</th></tr></thead>
-            <tbody>{filteredPlayers.map((player, index) => <tr key={`${player.name}-${player.club}`}>
-              <td><span className={`rank-number ${index < 3 ? "rank-highlight" : ""}`}>{String(index + 1).padStart(2, "0")}</span></td>
-              <td className="leaderboard-player">{player.name}</td><td>{player.club}</td><td className="leaderboard-goals">{player.goals}</td><td>{player.assists}</td>
-              <td><span className="yellow-card-count">{player.yellowCards}</span></td><td><span className="red-card-count">{player.redCards}</span></td>
-            </tr>)}</tbody>
-          </table>
-        </div> : <p className="empty-state">No player statistics are available for this selection yet. Approve player profiles and record match events to populate this leaderboard.</p>}
-        <p className="data-note">{isDemo ? "Preview-only examples are shown while Supabase is not configured. These are not official player statistics." : "Player totals use available approved player records and match-event data. Missing event records are not inferred."}</p>
+
+        {loading ? (
+          <p className="empty-state">
+            Loading player performance…
+          </p>
+        ) : loadError ? (
+          <p className="empty-state" role="alert">
+            {loadError}
+          </p>
+        ) : filteredPlayers.length > 0 ? (
+          <div className="table-wrap">
+            <table className="standings-table leaderboard-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Player</th>
+                  <th>Club</th>
+                  <th>Goals</th>
+                  <th>Assists</th>
+                  <th>Yellow Cards</th>
+                  <th>Red Cards</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredPlayers.map((player, index) => (
+                  <tr key={`${player.id}-${player.club}`}>
+                    <td>
+                      <span
+                        className={`rank-number ${index < 3 ? "rank-highlight" : ""
+                          }`}
+                      >
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                    </td>
+
+                    <td className="leaderboard-player">
+                      {player.name}
+                    </td>
+
+                    <td>{player.club}</td>
+
+                    <td className="leaderboard-goals">
+                      {player.goals}
+                    </td>
+
+                    <td>{player.assists}</td>
+
+                    <td>
+                      <span className="yellow-card-count">
+                        {player.yellowCards}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span className="red-card-count">
+                        {player.redCards}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="empty-state">
+            No approved player records are available for this selection yet.
+            Approve player profiles and record match events to populate
+            the leaderboard.
+          </p>
+        )}
+
+        <p className="data-note">
+          Statistics are calculated from available match-event records.
+          Only recorded events are counted; missing statistics are shown as zero.
+        </p>
       </div>
     </section>
   );
 }
+
 
 export default function App() {
   const [selectedClub, setSelectedClub] = useState("All Clubs");
@@ -1152,37 +1459,93 @@ export default function App() {
   const [adminNotice, setAdminNotice] = useState("");
   const [adminUser, setAdminUser] = useState(null);
   const [adminBusy, setAdminBusy] = useState(false);
-  const [publicClubs, setPublicClubs] = useState(CLUBS.map((club) => ({ ...club })));
+  const [publicClubs, setPublicClubs] = useState([]);
   const [activeClub, setActiveClub] = useState(null);
   const [liveMatches, setLiveMatches] = useState([]);
   const [livePlayerCount, setLivePlayerCount] = useState(0);
   const [liveDataLoaded, setLiveDataLoaded] = useState(false);
+  const [refreshingMatches, setRefreshingMatches] = useState(false);
+
 
   useEffect(() => {
     let active = true;
+
     async function loadPublicData() {
-      if (!supabase) { setLiveDataLoaded(true); return; }
-      const safeQuery = async (table) => {
-        const { data, error } = await supabase.from(table).select("*").limit(2500);
-        return error ? [] : (data || []);
-      };
-      const [clubs, matches, roster, profiles] = await Promise.all([
-        safeQuery("clubs"), safeQuery("matches"), safeQuery("approved_roster"), safeQuery("approved_player_profiles")
-      ]);
-      if (!active) return;
-      if (clubs.length) {
-        setPublicClubs(clubs.map((club, index) => ({
-          ...club,
-          color: CLUBS[index % CLUBS.length]?.color || "#00dca0",
-          description: club.description || "University football club competing in the Manav Rachna football community."
-        })));
+      if (!supabase) {
+        setLiveDataLoaded(true);
+        return;
       }
+
+      const safeQuery = async (table) => {
+        const { data, error } = await supabase
+          .from(table)
+          .select("*")
+          .limit(2500);
+
+        if (error) {
+          console.error(`Failed to load ${table}:`, error.message);
+          return [];
+        }
+
+        return data || [];
+      };
+
+      const [clubs, matches, roster, profiles] = await Promise.all([
+        safeQuery("clubs"),
+        safeQuery("matches"),
+        safeQuery("approved_roster"),
+        safeQuery("approved_player_profiles"),
+      ]);
+
+      if (!active) return;
+
+      setPublicClubs(
+        (clubs.length
+          ? clubs
+          : CLUBS.map((club) => ({
+            ...club,
+            id: club.name,
+          }))
+        ).map((club, index) => ({
+          ...club,
+          color: club.color || CLUBS[index % CLUBS.length]?.color || "#00dca0",
+          description:
+            club.description ||
+            "University football club competing in the Manav Rachna football community.",
+        }))
+      );
+
       setLiveMatches(matches);
-      setLivePlayerCount(new Set([...roster, ...profiles].map((row) => String(row.player_id || row.user_id || row.football_name || row.full_name || row.name || row.id || JSON.stringify(row)))).size);
+
+      setLivePlayerCount(
+        new Set(
+          [...roster, ...profiles].map((row) =>
+            String(
+              row.player_id ||
+              row.user_id ||
+              row.football_name ||
+              row.full_name ||
+              row.name ||
+              row.id ||
+              JSON.stringify(row)
+            )
+          )
+        ).size
+      );
+
       setLiveDataLoaded(true);
     }
+
     loadPublicData();
-    return () => { active = false; };
+
+    const refreshTimer = setInterval(() => {
+      loadPublicData();
+    }, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(refreshTimer);
+    };
   }, []);
 
   const verifyAdmin = useCallback(async (user) => {
@@ -1239,7 +1602,18 @@ export default function App() {
       id: club.id || club.name, name: club.name, played: 0, won: 0, drawn: 0, lost: 0,
       goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0
     }]));
-    const completedStatuses = ["completed", "complete", "finished", "full time", "full-time", "ft"];
+
+    const completedStatuses = [
+      "completed",
+      "complete",
+      "finished",
+      "full time",
+      "full-time",
+      "ft",
+    ];
+
+
+    const liveStatuses = ["live", "in progress", "in-progress", "ongoing", "1st half", "2nd half", "halftime", "half time", "ht"];
     const value = (row, keys) => { for (const key of keys) if (row?.[key] != null && row[key] !== "") return row[key]; return null; };
     const clubEntry = (id, name) => table.get(String(id || "")) || [...table.values()].find((item) => item.name.toLowerCase() === String(name || "").toLowerCase());
     liveMatches.filter((match) => completedStatuses.includes(String(match.status || "").trim().toLowerCase())).forEach((match) => {
@@ -1493,7 +1867,7 @@ export default function App() {
                   <li>Phone numbers must contain exactly 10 digits.</li>
                 </ul>
               </div>
-              <RegistrationForm />
+              <RegistrationForm publicClubs={publicClubs} />
             </div>
           </div>
         </section>
@@ -1542,3 +1916,4 @@ export default function App() {
     </div>
   );
 }
+
