@@ -535,6 +535,75 @@ function MatchReport({ match }) {
   );
 }
 
+
+function PublicMatchClock({ match }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const phase = String(match.clockPhase || "not_started").toLowerCase();
+  const elapsedSaved = Math.max(
+    0,
+    Number(match.clockElapsedSeconds) || 0
+  );
+
+  const startedAt = match.clockStartedAt
+    ? new Date(match.clockStartedAt).getTime()
+    : NaN;
+
+  let elapsed = elapsedSaved;
+
+  if (
+    Number.isFinite(startedAt) &&
+    ["first_half", "second_half"].includes(phase)
+  ) {
+    elapsed += Math.max(0, Math.floor((now - startedAt) / 1000));
+  }
+
+  // Each half is capped at 45 minutes of playing time.
+  const displaySeconds =
+    phase === "first_half"
+      ? Math.min(elapsed, 45 * 60)
+      : phase === "second_half"
+        ? Math.min(elapsed, 90 * 60)
+        : phase === "halftime"
+          ? 45 * 60
+          : phase === "completed"
+            ? 90 * 60
+            : 0;
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const labels = {
+    not_started: "NOT STARTED",
+    first_half: "FIRST HALF",
+    halftime: "HALF-TIME",
+    second_half: "SECOND HALF",
+    completed: "FULL-TIME",
+  };
+
+  return (
+    <div className={`public-match-clock ${phase === "first_half" || phase === "second_half" ? "clock-live" : ""}`}>
+      <span className="clock-phase">
+        {(phase === "first_half" || phase === "second_half") && (
+          <span className="status-dot" />
+        )}
+        {labels[phase] || "MATCH CLOCK"}
+      </span>
+      <strong>{formatTime(displaySeconds)}</strong>
+    </div>
+  );
+}
+
+
+
 function MatchCard({ match }) {
   const [lineupOpen, setLineupOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -565,6 +634,9 @@ function MatchCard({ match }) {
         >
           {completed ? "Full Time" : isLive ? "LIVE" : "Scheduled"}
         </span>
+
+        <PublicMatchClock match={match} />
+
 
       </div>
 
@@ -728,8 +800,17 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
       awayScore: hasScores ? Number(awayScore) : null,
       halfTime: value(["half_time_score", "half_time"], null),
       homeFormation: value(["home_formation"], "4-3-3"), awayFormation: value(["away_formation"], "4-3-3"),
-      homeLineup: [], awayLineup: [], events: []
+
+      homeLineup: [],
+      awayLineup: [],
+      events: [],
+      clockPhase: value(["clock_phase"], "not_started"),
+      clockElapsedSeconds: value(["clock_elapsed_seconds"], 0),
+      clockStartedAt: value(["clock_started_at"], null),
+      firstHalfAddedMinutes: value(["first_half_added_minutes"], 0),
+      secondHalfAddedMinutes: value(["second_half_added_minutes"], 0)
     };
+
   }) : [];
 
   const matches = sourceMatches.filter((match) => {
@@ -1288,19 +1369,20 @@ function TopPlayers({ publicClubs = CLUBS }) {
 
       try {
         const { data, error } = await supabase
-          .from("player_performance_leaderboard")
+          .from("match_player_points")
           .select("*");
 
         if (error) throw error;
-
         const result = (data || []).map((row) => ({
-          id: row.registration_id,
-          name: row.player || "Unnamed player",
-          club: row.club || "Club not assigned",
+          id: `${row.match_id}-${row.player_registration_id}`,
+          registrationId: row.player_registration_id,
+          name: row.player_name || "Unnamed player",
+          clubId: row.club_id,
           goals: Number(row.goals) || 0,
           assists: Number(row.assists) || 0,
           yellowCards: Number(row.yellow_cards) || 0,
           redCards: Number(row.red_cards) || 0,
+          totalPoints: Number(row.total_points) || 0,
         }));
 
         if (active) {
@@ -1327,23 +1409,47 @@ function TopPlayers({ publicClubs = CLUBS }) {
     };
   }, []);
 
-  const filteredPlayers = useMemo(
-    () =>
-      players
-        .filter(
-          (player) =>
-            selectedClub === "All Clubs" ||
-            player.club === selectedClub
-        )
-        .sort(
-          (a, b) =>
-            b.goals - a.goals ||
-            b.assists - a.assists ||
-            a.name.localeCompare(b.name)
-        )
-        .slice(0, 10),
-    [players, selectedClub]
-  );
+  const filteredPlayers = useMemo(() => {
+    const totals = new Map();
+
+    players.forEach((player) => {
+      const key = player.registrationId;
+
+      if (!totals.has(key)) {
+        totals.set(key, {
+          ...player,
+          goals: 0,
+          assists: 0,
+          yellowCards: 0,
+          redCards: 0,
+          totalPoints: 0,
+        });
+      }
+
+      const total = totals.get(key);
+
+      total.goals += player.goals;
+      total.assists += player.assists;
+      total.yellowCards += player.yellowCards;
+      total.redCards += player.redCards;
+      total.totalPoints += player.totalPoints;
+    });
+
+    return [...totals.values()]
+      .filter(
+        (player) =>
+          selectedClub === "All Clubs" ||
+          player.clubId === selectedClub
+      )
+      .sort(
+        (a, b) =>
+          b.totalPoints - a.totalPoints ||
+          b.goals - a.goals ||
+          b.assists - a.assists ||
+          a.name.localeCompare(b.name)
+      )
+      .slice(0, 10);
+  }, [players, selectedClub]);
 
   return (
     <section className="section" id="statistics">
@@ -1392,6 +1498,7 @@ function TopPlayers({ publicClubs = CLUBS }) {
                   <th>Assists</th>
                   <th>Yellow Cards</th>
                   <th>Red Cards</th>
+                  <th>Total Points</th>
                 </tr>
               </thead>
 
@@ -1429,6 +1536,9 @@ function TopPlayers({ publicClubs = CLUBS }) {
                       <span className="red-card-count">
                         {player.redCards}
                       </span>
+                    </td>
+                    <td className="leaderboard-points">
+                      <strong>{player.totalPoints}</strong>
                     </td>
                   </tr>
                 ))}
@@ -1547,6 +1657,40 @@ export default function App() {
       clearInterval(refreshTimer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !supabaseConfigured) return undefined;
+
+    const channel = supabase
+      .channel("public-match-clock-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "matches",
+        },
+        async () => {
+          const { data, error } = await supabase
+            .from("matches")
+            .select("*")
+            .limit(2500);
+
+          if (error) {
+            console.error("Failed to refresh public matches:", error.message);
+            return;
+          }
+
+          setLiveMatches(data || []);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
 
   const verifyAdmin = useCallback(async (user) => {
     if (!supabase || !user) return;

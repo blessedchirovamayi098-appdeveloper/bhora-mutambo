@@ -7,6 +7,8 @@ const SECTIONS = [
   { key: "registrations", label: "Registration applications", description: "Review, approve or reject applications." },
   { key: "clubs", label: "Clubs", description: "Manage the club directory." },
   { key: "approved_roster", label: "Players & roster", description: "Manage approved squad members." },
+  { key: "coaches", label: "Coaches", description: "Manage coach profiles and approval status." },
+  { key: "referees", label: "Referees", description: "Manage referee profiles and approval status." },
   { key: "approved_player_profiles", label: "Player profiles", description: "Manage public player profiles." },
   { key: "matches", label: "Matches", description: "Create fixtures and update results." },
   { key: "match_lineups", label: "Lineups & player stats", description: "Manage match lineups and publication." },
@@ -70,7 +72,36 @@ const TABLE_COLUMNS = {
     "position_or_specialty",
     "experience",
     "status",
+    "is_published",
     "created_at",
+
+  ],
+  coaches: [
+    "id",
+    "club_id",
+    "role",
+    "full_name",
+    "photo_path",
+    "position_or_specialty",
+    "experience",
+    "status",
+    "is_published",
+    "created_at",
+
+  ],
+
+  referees: [
+    "id",
+    "club_id",
+    "role",
+    "full_name",
+    "photo_path",
+    "position_or_specialty",
+    "experience",
+    "status",
+    "is_published",
+    "created_at",
+
   ],
 
 
@@ -119,6 +150,13 @@ const TABLE_COLUMNS = {
     "referee_3_roster_id",
     "kickoff_at",
     "match_started_at",
+
+    "clock_phase",
+    "clock_elapsed_seconds",
+    "clock_started_at",
+    "first_half_added_minutes",
+    "second_half_added_minutes",
+
     "venue",
     "status",
     "home_score",
@@ -389,8 +427,10 @@ export default function AdminDashboard({ user, onSignOut }) {
       return;
     }
 
+    const rosterSection = ["coaches", "referees"].includes(section);
+
     const { data, error: queryError } = await supabase
-      .from(section)
+      .from(rosterSection ? "approved_roster" : section)
       .select("*")
       .limit(2000);
 
@@ -403,7 +443,19 @@ export default function AdminDashboard({ user, onSignOut }) {
     }
 
     const list = data ?? [];
-    setRows(list);
+
+    const filteredList =
+      section === "coaches"
+        ? list.filter(
+          (row) => String(row.role || "").toLowerCase() === "coach"
+        )
+        : section === "referees"
+          ? list.filter(
+            (row) => String(row.role || "").toLowerCase() === "referee"
+          )
+          : list;
+
+    setRows(filteredList);
     setColumns(
       list.length > 0
         ? Object.keys(list[0])
@@ -614,6 +666,11 @@ export default function AdminDashboard({ user, onSignOut }) {
         referee_2_roster_id: "",
         referee_3_roster_id: "",
         match_started_at: "",
+        clock_phase: "not_started",
+        clock_elapsed_seconds: 0,
+        clock_started_at: "",
+        first_half_added_minutes: 0,
+        second_half_added_minutes: 0,
         updated_by: user?.id || "",
         status: "Scheduled",
         home_score: "",
@@ -639,15 +696,20 @@ export default function AdminDashboard({ user, onSignOut }) {
     }
 
 
-    if (section === "approved_roster") {
+    if (["approved_roster", "coaches", "referees"].includes(section)) {
       setEditing({ mode: "create" });
       setDraft({
         club_id: "",
-        role: "player",
+        role: section === "coaches"
+          ? "coach"
+          : section === "referees"
+            ? "referee"
+            : "player",
         full_name: "",
         position_or_specialty: "",
         experience: "",
         status: "Approved",
+        is_published: false,
       });
       return;
     }
@@ -930,6 +992,17 @@ export default function AdminDashboard({ user, onSignOut }) {
 
 
     if (section === "matches") {
+      if (
+        [
+          "clock_phase",
+          "clock_elapsed_seconds",
+          "clock_started_at",
+          "first_half_added_minutes",
+          "second_half_added_minutes",
+        ].includes(key)
+      ) {
+        return null;
+      }
       if (
         key === "home_coach_roster_id" ||
         key === "away_coach_roster_id"
@@ -1442,14 +1515,21 @@ export default function AdminDashboard({ user, onSignOut }) {
         payload[key] = value;
       });
 
-      if (section === "approved_roster") {
+      if (["approved_roster", "coaches", "referees"].includes(section)) {
         payload = {
           club_id: draft.club_id || null,
-          role: String(draft.role || "player").trim(),
+          role:
+            section === "coaches"
+              ? "coach"
+              : section === "referees"
+                ? "referee"
+                : String(draft.role || "player").trim(),
           full_name: String(draft.full_name || "").trim(),
           position_or_specialty: draft.position_or_specialty || null,
           experience: draft.experience || null,
-          status: String(draft.status || "Approved").trim(),
+          status: String(draft.status || "approved").trim(),
+          is_published:
+            draft.is_published === true || draft.is_published === "true",
         };
 
         if (!payload.club_id || !payload.full_name || !payload.role) {
@@ -1621,15 +1701,23 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       let saveQuery;
 
+      const targetTable = ["coaches", "referees"].includes(section)
+        ? "approved_roster"
+        : section;
+
+      if (["coaches", "referees"].includes(section)) {
+        payload.role = section === "coaches" ? "coach" : "referee";
+      }
+
       if (editing.mode === "create") {
-        saveQuery = supabase.from(section).insert(payload);
+        saveQuery = supabase.from(targetTable).insert(payload);
       } else {
         if (!primaryKey || editing.row?.[primaryKey] == null) {
           throw new Error("Cannot update this record: its primary key is missing.");
         }
 
         saveQuery = supabase
-          .from(section)
+          .from(targetTable)
           .update(payload)
           .eq(primaryKey, editing.row[primaryKey]);
       }
@@ -1660,6 +1748,106 @@ export default function AdminDashboard({ user, onSignOut }) {
       setError(saveError?.message || "Could not save the record.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function controlMatchClock(match, action, minutes = null) {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    let updates = {};
+
+    switch (action) {
+      case "start_first_half":
+        updates = {
+          clock_phase: "first_half",
+          clock_elapsed_seconds: 0,
+          clock_started_at: now,
+          match_started_at: now,
+          status: "Live",
+          updated_by: user?.id || null,
+        };
+        break;
+
+      case "half_time":
+        updates = {
+          clock_phase: "halftime",
+          clock_elapsed_seconds: 45 * 60,
+          clock_started_at: null,
+          status: "Live",
+          updated_by: user?.id || null,
+        };
+        break;
+
+      case "start_second_half":
+        updates = {
+          clock_phase: "second_half",
+          clock_elapsed_seconds: 45 * 60,
+          clock_started_at: now,
+          status: "Live",
+          updated_by: user?.id || null,
+        };
+        break;
+
+      case "complete":
+        updates = {
+          clock_phase: "completed",
+          clock_elapsed_seconds: 90 * 60,
+          clock_started_at: null,
+          status: "Completed",
+          updated_by: user?.id || null,
+        };
+        break;
+
+      case "set_added_time": {
+        const addedMinutes = Number(minutes);
+
+        if (
+          !Number.isInteger(addedMinutes) ||
+          addedMinutes < 0 ||
+          addedMinutes > 20
+        ) {
+          setError("Added time must be a whole number from 0 to 20.");
+          return;
+        }
+
+        if (match.clock_phase === "halftime" || match.clock_phase === "second_half") {
+          updates = { second_half_added_minutes: addedMinutes };
+        } else if (
+          match.clock_phase === "first_half" ||
+          match.clock_phase === "not_started"
+        ) {
+          updates = { first_half_added_minutes: addedMinutes };
+        } else {
+          setError("Added time cannot be changed after the match is completed.");
+          return;
+        }
+        break;
+      }
+
+      default:
+        setError("Unknown clock action.");
+        return;
+    }
+
+    setError("");
+    setNotice("");
+
+    try {
+      const { error: updateError } = await supabase
+        .from("matches")
+        .update(updates)
+        .eq("id", match.id);
+
+      if (updateError) throw updateError;
+
+      setNotice("Match clock updated successfully.");
+      await loadRows();
+    } catch (clockError) {
+      setError(clockError?.message || "Could not update the match clock.");
     }
   }
 
@@ -1738,6 +1926,8 @@ export default function AdminDashboard({ user, onSignOut }) {
   const canAdd = [
     "clubs",
     "approved_roster",
+    "coaches",
+    "referees",
     "approved_player_profiles",
     "matches",
     "match_lineups",
@@ -2044,6 +2234,76 @@ export default function AdminDashboard({ user, onSignOut }) {
 
                         <td>
                           <div className="admin-row-actions">
+                            {section === "matches" && (
+                              <div className="match-control-panel">
+                                <div className="match-control-buttons">
+                                  {(!row.clock_phase || row.clock_phase === "not_started") && (
+                                    <button
+                                      type="button"
+                                      className="match-control-btn match-start-first"
+                                      onClick={() => controlMatchClock(row, "start_first_half")}
+                                    >
+                                      <span aria-hidden="true">▶</span>
+                                      Start 1st Half
+                                    </button>
+                                  )}
+
+                                  {row.clock_phase === "first_half" && (
+                                    <button
+                                      type="button"
+                                      className="match-control-btn match-half-time"
+                                      onClick={() => controlMatchClock(row, "half_time")}
+                                    >
+                                      <span aria-hidden="true">Ⅱ</span>
+                                      Half-Time
+                                    </button>
+                                  )}
+
+                                  {row.clock_phase === "halftime" && (
+                                    <button
+                                      type="button"
+                                      className="match-control-btn match-start-second"
+                                      onClick={() => controlMatchClock(row, "start_second_half")}
+                                    >
+                                      <span aria-hidden="true">▶</span>
+                                      Start 2nd Half
+                                    </button>
+                                  )}
+
+                                  {row.clock_phase === "second_half" && (
+                                    <button
+                                      type="button"
+                                      className="match-control-btn match-complete"
+                                      onClick={() => controlMatchClock(row, "complete")}
+                                    >
+                                      <span aria-hidden="true">■</span>
+                                      Complete Match
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="match-phase-status">
+                                  <span aria-hidden="true">◷</span>
+                                  <span>
+                                    Current phase: {
+                                      !row.clock_phase || row.clock_phase === "not_started"
+                                        ? "Not started"
+                                        : row.clock_phase === "first_half"
+                                          ? "First half"
+                                          : row.clock_phase === "halftime"
+                                            ? "Half-time"
+                                            : row.clock_phase === "second_half"
+                                              ? "Second half"
+                                              : "Full-time"
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                            {row.clock_phase === "completed" && (
+                              <span>Match completed</span>
+                            )}
+
                             {section === "registrations" && row.status === "Pending" && (
                               <>
                                 <button
@@ -2087,58 +2347,61 @@ export default function AdminDashboard({ user, onSignOut }) {
               </div>
             )}
           </div>
-        )}
-        {editing && (
-          <div className="admin-modal-overlay">
-            <form className="admin-editor-form" onSubmit={saveDraft}>
-              <div className="admin-table-toolbar">
-                <h3>
-                  {editing.mode === "create" ? "Add record" : "Edit record"}
-                </h3>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={closeEditor}
-                  disabled={saving}
-                >
-                  Close
-                </button>
-              </div>
+        )
+        }
+        {
+          editing && (
+            <div className="admin-modal-overlay">
+              <form className="admin-editor-form" onSubmit={saveDraft}>
+                <div className="admin-table-toolbar">
+                  <h3>
+                    {editing.mode === "create" ? "Add record" : "Edit record"}
+                  </h3>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={closeEditor}
+                    disabled={saving}
+                  >
+                    Close
+                  </button>
+                </div>
 
-              <div className="admin-editor-grid">
-                {Object.entries(draft).map(([key, value]) => (
-                  <div key={key}>
-                    {renderDraftField(key, value)}
-                  </div>
-                ))}
-              </div>
+                <div className="admin-editor-grid">
+                  {Object.entries(draft).map(([key, value]) => (
+                    <div key={key}>
+                      {renderDraftField(key, value)}
+                    </div>
+                  ))}
+                </div>
 
-              <div className="admin-editor-actions">
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={saving}
-                >
-                  {saving
-                    ? "Saving..."
-                    : editing.mode === "create"
-                      ? "Create record"
-                      : "Save changes"}
-                </button>
+                <div className="admin-editor-actions">
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={saving}
+                  >
+                    {saving
+                      ? "Saving..."
+                      : editing.mode === "create"
+                        ? "Create record"
+                        : "Save changes"}
+                  </button>
 
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={closeEditor}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-      </section>
-    </div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={closeEditor}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )
+        }
+      </section >
+    </div >
   );
 }

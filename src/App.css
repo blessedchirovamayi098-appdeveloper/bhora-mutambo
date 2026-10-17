@@ -3284,3 +3284,56 @@ textarea:focus-visible {
   border: 1px solid #ff4545;
   background: rgba(255, 69, 69, 0.12);
 }
+
+.leaderboard-points {
+  font-weight: 800;
+  color: #39ff14;
+  text-align: center;
+}
+
+/* Make admin action buttons easier to press */
+.admin-table-card button,
+.admin-table-card input,
+.admin-table-card select {
+  min-height: 44px;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.admin-table-card button {
+  padding: 10px 16px;
+  margin: 4px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+/* Make added-time inputs wider */
+.admin-table-card input[type="number"] {
+  width: 190px;
+  min-width: 160px;
+  padding: 10px 12px;
+}
+
+/* Allow match controls to wrap instead of becoming cramped */
+.admin-table-card td {
+  padding: 10px;
+}
+
+.admin-table-card td button,
+.admin-table-card td input {
+  max-width: 100%;
+}
+
+/* Give controls more room on smaller screens */
+@media (max-width: 768px) {
+  .admin-table-card button {
+    min-height: 48px;
+    padding: 12px 16px;
+    font-size: 16px;
+  }
+
+  .admin-table-card input[type="number"] {
+    width: 100%;
+    max-width: 220px;
+  }
+}
