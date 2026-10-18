@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigured } from "./supabase";
 import AdminDashboard from "./AdminDashboard";
@@ -729,6 +728,82 @@ function MatchCard({ match }) {
 
 
 function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
+  const [lineupsByMatch, setLineupsByMatch] = useState({});
+  const [performanceByMatch, setPerformanceByMatch] = useState({});
+  const [pointsByMatch, setPointsByMatch] = useState({});
+  const [eventsByMatch, setEventsByMatch] = useState({});
+  const [matchDetailsError, setMatchDetailsError] = useState("");
+  useEffect(() => {
+    let active = true;
+
+    async function loadMatchDetails() {
+      if (!supabase || liveMatches.length === 0) {
+        setLineupsByMatch({});
+        setPerformanceByMatch({});
+        setPointsByMatch({});
+        setEventsByMatch({});
+        setMatchDetailsError("");
+        return;
+      }
+
+      const matchIds = liveMatches.map((match) => match.id).filter(Boolean);
+
+      if (matchIds.length === 0) return;
+
+      const results = await Promise.all([
+        supabase
+          .from("match_centre_lineups")
+          .select("*")
+          .in("match_id", matchIds)
+          .eq("is_published", true),
+
+        supabase
+          .from("match_centre_player_performance")
+          .select("*")
+          .in("match_id", matchIds),
+
+        supabase
+          .from("match_player_points")
+          .select("*")
+          .in("match_id", matchIds),
+
+        supabase
+          .from("match_events")
+          .select("*")
+          .in("match_id", matchIds)
+          .order("minute", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: true }),
+      ]);
+
+      if (!active) return;
+
+      const failed = results.find((result) => result.error);
+
+      if (failed) {
+        console.error("Failed to load match details:", failed.error);
+        setMatchDetailsError(failed.error.message);
+        return;
+      }
+
+      const groupByMatch = (rows) =>
+        (rows || []).reduce((grouped, row) => {
+          (grouped[row.match_id] ||= []).push(row);
+          return grouped;
+        }, {});
+
+      setLineupsByMatch(groupByMatch(results[0].data));
+      setPerformanceByMatch(groupByMatch(results[1].data));
+      setPointsByMatch(groupByMatch(results[2].data));
+      setEventsByMatch(groupByMatch(results[3].data));
+      setMatchDetailsError("");
+    }
+
+    loadMatchDetails();
+
+    return () => {
+      active = false;
+    };
+  }, [liveMatches]);
   const [matchTab, setMatchTab] = useState("upcoming");
   const [selectedClub, setSelectedClub] = useState("All Clubs");
   const completedStatuses = [
@@ -801,9 +876,85 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
       halfTime: value(["half_time_score", "half_time"], null),
       homeFormation: value(["home_formation"], "4-3-3"), awayFormation: value(["away_formation"], "4-3-3"),
 
-      homeLineup: [],
-      awayLineup: [],
-      events: [],
+      homeLineup: (lineupsByMatch[row.id] || [])
+        .filter(
+          (player) =>
+            String(player.club_id) === String(row.home_club_id) ||
+            (
+              !player.club_id &&
+              player.club_name === clubById(
+                row.home_club_id,
+                row.home_club_name
+              )
+            )
+        )
+        .map((player) => {
+          const performance = (performanceByMatch[row.id] || []).find(
+            (item) =>
+              item.player_registration_id === player.player_registration_id
+          );
+
+          const points = (pointsByMatch[row.id] || []).find(
+            (item) =>
+              item.player_registration_id === player.player_registration_id
+          );
+
+          return {
+            ...player,
+            name: player.player_name,
+            number: player.jersey_number,
+            position: player.position || player.lineup_role || "",
+            goals: performance?.goals ?? points?.goals ?? 0,
+            assists: points?.assists ?? 0,
+            minutes: performance?.minutes ?? "—",
+            cards: `${performance?.yellow_cards ?? points?.yellow_cards ?? 0}Y${performance?.red_cards ?? points?.red_cards ?? 0
+              }R`,
+            rating: performance?.rating ?? null,
+          };
+        }),
+
+      awayLineup: (lineupsByMatch[row.id] || [])
+        .filter(
+          (player) =>
+            String(player.club_id) === String(row.away_club_id) ||
+            (
+              !player.club_id &&
+              player.club_name === clubById(
+                row.away_club_id,
+                row.away_club_name
+              )
+            )
+        )
+        .map((player) => {
+          const performance = (performanceByMatch[row.id] || []).find(
+            (item) =>
+              item.player_registration_id === player.player_registration_id
+          );
+
+          const points = (pointsByMatch[row.id] || []).find(
+            (item) =>
+              item.player_registration_id === player.player_registration_id
+          );
+
+          return {
+            ...player,
+            name: player.player_name,
+            number: player.jersey_number,
+            position: player.position || player.lineup_role || "",
+            goals: performance?.goals ?? points?.goals ?? 0,
+            assists: points?.assists ?? 0,
+            minutes: performance?.minutes ?? "—",
+            cards: `${performance?.yellow_cards ?? points?.yellow_cards ?? 0}Y${performance?.red_cards ?? points?.red_cards ?? 0
+              }R`,
+            rating: performance?.rating ?? null,
+          };
+        }),
+
+      events: (eventsByMatch[row.id] || []).map((event) => ({
+        ...event,
+        type: event.event_type,
+        description: event.notes || event.event_type || "Match event",
+      })),
       clockPhase: value(["clock_phase"], "not_started"),
       clockElapsedSeconds: value(["clock_elapsed_seconds"], 0),
       clockStartedAt: value(["clock_started_at"], null),
@@ -1988,53 +2139,6 @@ export default function App() {
 
         <TopPlayers publicClubs={publicClubs} />
 
-        <section className="section registration-section" id="register">
-          <div className="section-inner">
-            <SectionTitle
-              eyebrow="BECOME PART OF THE TEAM"
-              title="PLAYER & OFFICIAL REGISTRATION"
-              description="Submit your details for review by your preferred club."
-            />
-
-            <div className="registration-layout">
-              <div className="registration-copy">
-                <h3>Your next chapter starts here.</h3>
-                <p>
-                  Whether you are registering as a player, coach or referee,
-                  provide accurate details so the club can identify and contact
-                  you.
-                </p>
-                <ul>
-                  <li>Profile picture is compulsory.</li>
-                  <li>Provide your full legal name and football name.</li>
-                  <li>Players must choose a jersey number from 1–99.</li>
-                  <li>Phone numbers must contain exactly 10 digits.</li>
-                </ul>
-              </div>
-              <RegistrationForm publicClubs={publicClubs} />
-            </div>
-          </div>
-        </section>
-
-        <section className="section" id="about">
-          <div className="section-inner about-grid">
-            <div>
-              <p className="eyebrow">ABOUT THE PROJECT</p>
-              <h2>MORE THAN A GAME.</h2>
-            </div>
-            <div>
-              <p>
-                Manav Rachna Football Clubs-v2 brings club information, player
-                performance, match records and registration into one
-                football-focused platform.
-              </p>
-              <p>
-                Official registrations, administration, player statistics and
-                discipline records require a connected and secure database.
-              </p>
-            </div>
-          </div>
-        </section>
       </main>
 
       <footer className="site-footer">
@@ -2060,4 +2164,3 @@ export default function App() {
     </div>
   );
 }
-

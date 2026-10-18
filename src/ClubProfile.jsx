@@ -282,7 +282,13 @@ export default function ClubProfile({ club, onClose }) {
   }, [records.roster, records.profiles, registrations, club]);
 
   const players = useMemo(() => roster.filter((row) => !isStaff(row)), [roster]);
-  const staff = useMemo(() => roster.filter(isStaff), [roster]);
+  const staff = useMemo(
+    () =>
+      roster.filter(
+        (row) => isStaff(row) && row.is_published === true
+      ),
+    [roster]
+  );
 
   const playerLookup = useMemo(() => {
     const map = new Map();
@@ -349,14 +355,24 @@ export default function ClubProfile({ club, onClose }) {
     return players
       .map((player) => {
         const id = registrationKey(player) || player.id;
+        const stats = counts.get(String(id)) || emptyStats();
+
+        const totalPoints =
+          stats.goals * 5 +
+          stats.assists * 3 -
+          stats.yellow -
+          stats.red * 3;
+
         return {
           ...player,
           registration_id: id,
-          stats: counts.get(String(id)) || emptyStats(),
+          stats,
+          totalPoints,
         };
       })
       .sort(
         (a, b) =>
+          b.totalPoints - a.totalPoints ||
           b.stats.goals - a.stats.goals ||
           b.stats.assists - a.stats.assists
       );
@@ -583,6 +599,7 @@ export default function ClubProfile({ club, onClose }) {
                         <span><b>{player.stats.assists}</b>Assists</span>
                         <span><b>{player.stats.yellow}</b>Yellow</span>
                         <span><b>{player.stats.red}</b>Red</span>
+                        <span><b>{player.totalPoints}</b>Total Points</span>
                       </div>
                     </div>
                   </article>
