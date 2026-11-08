@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigured } from "./supabase";
 import AdminDashboard from "./AdminDashboard";
+import FarewellOverlay from "./FarewellOverlay";
 import ClubProfile from "./ClubProfile";
+
 import "./App.css";
 
 const CLUBS = [
@@ -2161,6 +2163,10 @@ export default function App() {
           © {new Date().getFullYear()} Manav Rachna Football Clubs-v2
         </p>
       </footer>
+
+      {/* BHORA MUTAMBO FAREWELL COVER */}
+      <FarewellOverlay />
+
     </div>
   );
 }

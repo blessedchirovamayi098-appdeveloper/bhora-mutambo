@@ -2014,6 +2014,59 @@ export default function AdminDashboard({ user, onSignOut }) {
         {notice && (
           <p className="admin-alert success" role="status">{notice}</p>
         )}
+        {editing && (
+          <div className="admin-editor-card">
+            <form className="admin-editor-form" onSubmit={saveDraft}>
+              <div className="admin-table-toolbar">
+                <h3>
+                  {editing.mode === "create"
+                    ? `Add ${section === "matches" ? "match" : section === "match_events" ? "match event" : "record"}`
+                    : `Edit ${section === "matches" ? "match" : section === "match_events" ? "match event" : "record"}`}
+                </h3>
+
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEditor}
+                  disabled={saving}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="admin-editor-grid">
+                {Object.entries(draft).map(([key, value]) => (
+                  <div key={key}>
+                    {renderDraftField(key, value)}
+                  </div>
+                ))}
+              </div>
+
+              <div className="admin-editor-actions">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Saving..."
+                    : editing.mode === "create"
+                      ? "Create record"
+                      : "Save changes"}
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEditor}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {section === "overview" && (
           <div className="admin-table-card">
@@ -2349,58 +2402,7 @@ export default function AdminDashboard({ user, onSignOut }) {
           </div>
         )
         }
-        {
-          editing && (
-            <div className="admin-modal-overlay">
-              <form className="admin-editor-form" onSubmit={saveDraft}>
-                <div className="admin-table-toolbar">
-                  <h3>
-                    {editing.mode === "create" ? "Add record" : "Edit record"}
-                  </h3>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={closeEditor}
-                    disabled={saving}
-                  >
-                    Close
-                  </button>
-                </div>
 
-                <div className="admin-editor-grid">
-                  {Object.entries(draft).map(([key, value]) => (
-                    <div key={key}>
-                      {renderDraftField(key, value)}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="admin-editor-actions">
-                  <button
-                    type="submit"
-                    className="primary-button"
-                    disabled={saving}
-                  >
-                    {saving
-                      ? "Saving..."
-                      : editing.mode === "create"
-                        ? "Create record"
-                        : "Save changes"}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={closeEditor}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )
-        }
       </section >
     </div >
   );

@@ -113,3 +113,19 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+.admin-editor-card {
+  width: 100%;
+  margin: 20px 0;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.admin-editor-card .admin-editor-form {
+  width: 100%;
+  max-width: none;
+  position: static;
+}
