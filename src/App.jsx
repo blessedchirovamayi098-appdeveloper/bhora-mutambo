@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigured } from "./supabase";
 import AdminDashboard from "./AdminDashboard";
-import FarewellOverlay from "./FarewellOverlay";
+
 import ClubProfile from "./ClubProfile";
 
 import "./App.css";
@@ -365,41 +365,98 @@ function PlayerPerformanceTable({ match }) {
 
 function MatchReport({ match }) {
   const allPlayers = [
-    ...match.homeLineup.map((player) => ({
-      ...player,
-      club: match.home,
-    })),
-    ...match.awayLineup.map((player) => ({
-      ...player,
-      club: match.away,
-    })),
+    ...match.homeLineup.map((player) => ({ ...player, club: match.home })),
+    ...match.awayLineup.map((player) => ({ ...player, club: match.away })),
   ];
 
   const totalGoals = allPlayers.reduce(
-    (total, player) => total + (Number(player.goals) || 0),
-    0
+    (total, player) => total + (Number(player.goals) || 0), 0
   );
-
   const totalAssists = allPlayers.reduce(
-    (total, player) => total + (Number(player.assists) || 0),
-    0
+    (total, player) => total + (Number(player.assists) || 0), 0
   );
-
   const totalYellowCards = allPlayers.reduce(
-    (total, player) =>
-      total + (Number(player.cards?.match(/(\d+)Y/)?.[1]) || 0),
-    0
+    (total, player) => total + getCardCount(player.cards, "Y"), 0
   );
-
   const totalRedCards = allPlayers.reduce(
-    (total, player) =>
-      total + (Number(player.cards?.match(/(\d+)R/)?.[1]) || 0),
-    0
+    (total, player) => total + getCardCount(player.cards, "R"), 0
   );
 
-  const events = [...(match.events || [])].sort(
-    (a, b) => a.minute - b.minute
-  );
+  const normalizeEvent = (event) => {
+    const rawType = String(event.type || event.event_type || "")
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+    const description = String(
+      event.description || event.notes || event.event_type || "Match event"
+    );
+
+    const lower = description.toLowerCase();
+
+    const aliases = {
+      yellow_card: "yellow",
+      red_card: "red",
+      own_goal: "own_goal",
+      penalty_goal: "goal",
+      penalty_missed: "penalty_missed",
+      penalty_save: "penalty_save",
+      substitution: "substitution",
+      clean_sheet: "clean_sheet",
+    };
+
+    let type = aliases[rawType] || rawType;
+
+    if (!type || type === "other" || type === "event") {
+      if (lower.includes("red card")) type = "red";
+      else if (lower.includes("yellow card")) type = "yellow";
+      else if (lower.includes("own goal")) type = "own_goal";
+      else if (lower.includes("penalty") && lower.includes("miss")) type = "penalty_missed";
+      else if (lower.includes("penalty") && lower.includes("save")) type = "penalty_save";
+      else if (lower.includes("goal")) type = "goal";
+      else if (lower.includes("entered") || lower.includes("left the match")) type = "substitution";
+      else if (lower.includes("injury")) type = "injury";
+      else type = "event";
+    }
+
+    const labels = {
+      goal: "GOAL",
+      own_goal: "OWN GOAL",
+      yellow: "YELLOW CARD",
+      red: "RED CARD",
+      substitution: "SUBSTITUTION",
+      penalty_missed: "PENALTY MISSED",
+      penalty_save: "PENALTY SAVE",
+      clean_sheet: "CLEAN SHEET",
+      injury: "INJURY",
+    };
+
+    const icons = {
+      goal: "⚽",
+      own_goal: "⚽",
+      yellow: "🟨",
+      red: "🟥",
+      substitution: "↕",
+      penalty_missed: "✖",
+      penalty_save: "🧤",
+      clean_sheet: "🧤",
+      injury: "⚕",
+    };
+
+    return {
+      ...event,
+      type,
+      description,
+      label: labels[type] || "MATCH EVENT",
+      icon: icons[type] || "•",
+      minute: Number.isFinite(Number(event.minute))
+        ? Number(event.minute)
+        : null,
+    };
+  };
+
+  const events = (match.events || [])
+    .map(normalizeEvent)
+    .sort((a, b) => (a.minute ?? 999) - (b.minute ?? 999));
 
   return (
     <div className="match-report">
@@ -407,54 +464,28 @@ function MatchReport({ match }) {
         <h3>Match summary</h3>
 
         <div className="match-summary-grid">
-          <div>
-            <small>Goals in player records</small>
-            <strong>{totalGoals}</strong>
-          </div>
-
-          <div>
-            <small>Assists</small>
-            <strong>{totalAssists}</strong>
-          </div>
-
-          <div>
-            <small>Yellow cards</small>
-            <strong>{totalYellowCards}</strong>
-          </div>
-
-          <div>
-            <small>Red cards</small>
-            <strong>{totalRedCards}</strong>
-          </div>
+          <div><small>Goals in player records</small><strong>{totalGoals}</strong></div>
+          <div><small>Assists</small><strong>{totalAssists}</strong></div>
+          <div><small>Yellow cards</small><strong>{totalYellowCards}</strong></div>
+          <div><small>Red cards</small><strong>{totalRedCards}</strong></div>
         </div>
 
         <p className="data-note">
-          These totals come from the displayed demo player records. They
-          may differ from the match score because the demo data is incomplete.
+          Summary totals are calculated from the published player records.
+          They may differ from the final score if player statistics are incomplete.
         </p>
       </div>
 
       <div className="match-report-section">
         <h3>Lineups and formations</h3>
-
         <div className="lineups-grid">
-          <TeamLineup
-            teamName={match.home}
-            formation={match.homeFormation}
-            players={match.homeLineup}
-          />
-
-          <TeamLineup
-            teamName={match.away}
-            formation={match.awayFormation}
-            players={match.awayLineup}
-          />
+          <TeamLineup teamName={match.home} formation={match.homeFormation} players={match.homeLineup} />
+          <TeamLineup teamName={match.away} formation={match.awayFormation} players={match.awayLineup} />
         </div>
       </div>
 
       <div className="match-report-section">
         <h3>Player performance</h3>
-
         <PlayerPerformanceTable match={match} />
       </div>
 
@@ -462,74 +493,31 @@ function MatchReport({ match }) {
         <h3>Match timeline</h3>
 
         {events.length === 0 ? (
-          <p className="empty-state">
-            No timed match events have been recorded.
-          </p>
+          <p className="empty-state">No timed match events have been recorded.</p>
         ) : (
           <div className="match-timeline">
-            {events.map((event, index) => {
-              const description = event.description || "";
-              const lowerDescription = description.toLowerCase();
-
-              const type = event.type
-                ? event.type.toLowerCase()
-                : lowerDescription.includes("red card")
-                  ? "red"
-                  : lowerDescription.includes("yellow card")
-                    ? "yellow"
-                    : lowerDescription.includes("goal")
-                      ? "goal"
-                      : lowerDescription.includes("entered") ||
-                        lowerDescription.includes("left the match")
-                        ? "substitution"
-                        : "event";
-
-              return (
-                <article
-                  className={`timeline-event timeline-${type}`}
-                  key={`${event.minute}-${description}-${index}`}
-                >
-                  <div className="timeline-minute">
-                    {event.minute}'
-                  </div>
-
-                  <div className="timeline-marker" aria-hidden="true">
-                    {type === "goal"
-                      ? "⚽"
-                      : type === "yellow"
-                        ? "🟨"
-                        : type === "red"
-                          ? "🟥"
-                          : type === "substitution"
-                            ? "↕"
-                            : "•"}
-                  </div>
-
-                  <div className="timeline-content">
-                    <strong>
-                      {type === "goal"
-                        ? "GOAL"
-                        : type === "yellow"
-                          ? "YELLOW CARD"
-                          : type === "red"
-                            ? "RED CARD"
-                            : type === "substitution"
-                              ? "SUBSTITUTION"
-                              : "MATCH EVENT"}
-                    </strong>
-
-                    <p>{description}</p>
-                  </div>
-                </article>
-              );
-            })}
+            {events.map((event, index) => (
+              <article
+                className={`timeline-event timeline-${event.type}`}
+                key={`${event.id || event.minute}-${event.description}-${index}`}
+              >
+                <div className="timeline-minute">
+                  {event.minute == null ? "—" : `${event.minute}'`}
+                </div>
+                <div className="timeline-marker" aria-hidden="true">
+                  {event.icon}
+                </div>
+                <div className="timeline-content">
+                  <strong>{event.label}</strong>
+                  <p>{event.description}</p>
+                </div>
+              </article>
+            ))}
           </div>
         )}
 
         <p className="data-note">
-          Only events recorded in the match data are shown. Card events
-          need their own minute and player details to appear at the correct
-          time in the timeline.
+          Timeline entries are taken from the match events recorded in Supabase.
         </p>
       </div>
     </div>
@@ -608,8 +596,8 @@ function PublicMatchClock({ match }) {
 function MatchCard({ match }) {
   const [lineupOpen, setLineupOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-
   const completed = match.status === "Completed";
+  const resultPending = match.status === "Result Pending";
   const isLive = match.status === "Live";
 
   return (
@@ -625,16 +613,26 @@ function MatchCard({ match }) {
         </div>
 
 
+
         <span
           className={`match-status ${completed
             ? "match-status-completed"
-            : isLive
-              ? "match-status-live"
-              : "match-status-scheduled"
+            : resultPending
+              ? "match-status-scheduled"
+              : isLive
+                ? "match-status-live"
+                : "match-status-scheduled"
             }`}
         >
-          {completed ? "Full Time" : isLive ? "LIVE" : "Scheduled"}
+          {completed
+            ? "Full Time"
+            : resultPending
+              ? "Result Pending"
+              : isLive
+                ? "LIVE"
+                : "Scheduled"}
         </span>
+
 
         <PublicMatchClock match={match} />
 
@@ -879,17 +877,23 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
       homeFormation: value(["home_formation"], "4-3-3"), awayFormation: value(["away_formation"], "4-3-3"),
 
       homeLineup: (lineupsByMatch[row.id] || [])
-        .filter(
-          (player) =>
-            String(player.club_id) === String(row.home_club_id) ||
-            (
-              !player.club_id &&
-              player.club_name === clubById(
-                row.home_club_id,
-                row.home_club_name
-              )
-            )
-        )
+
+        .filter((player) => {
+          if (row.home_club_id != null && player.club_id != null) {
+            return String(player.club_id) === String(row.home_club_id);
+          }
+
+          const homeName = clubById(
+            row.home_club_id,
+            row.home_club_name || row.home_club || row.home_team
+          );
+
+          return (
+            String(player.club_name || "").toLowerCase() ===
+            String(homeName).toLowerCase()
+          );
+        })
+
         .map((player) => {
           const performance = (performanceByMatch[row.id] || []).find(
             (item) =>
@@ -916,17 +920,23 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
         }),
 
       awayLineup: (lineupsByMatch[row.id] || [])
-        .filter(
-          (player) =>
-            String(player.club_id) === String(row.away_club_id) ||
-            (
-              !player.club_id &&
-              player.club_name === clubById(
-                row.away_club_id,
-                row.away_club_name
-              )
-            )
-        )
+
+        .filter((player) => {
+          if (row.away_club_id != null && player.club_id != null) {
+            return String(player.club_id) === String(row.away_club_id);
+          }
+
+          const awayName = clubById(
+            row.away_club_id,
+            row.away_club_name || row.away_club || row.away_team
+          );
+
+          return (
+            String(player.club_name || "").toLowerCase() ===
+            String(awayName).toLowerCase()
+          );
+        })
+
         .map((player) => {
           const performance = (performanceByMatch[row.id] || []).find(
             (item) =>
@@ -966,14 +976,25 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
 
   }) : [];
 
+
   const matches = sourceMatches.filter((match) => {
+    const isCompleted =
+      match.status === "Completed" ||
+      match.status === "Result Pending";
+
     const tabMatches =
       matchTab === "upcoming"
         ? match.status === "Scheduled" || match.status === "Live"
-        : match.status === "Completed";
-    const clubMatches = selectedClub === "All Clubs" || match.home === selectedClub || match.away === selectedClub;
+        : isCompleted;
+
+    const clubMatches =
+      selectedClub === "All Clubs" ||
+      match.home === selectedClub ||
+      match.away === selectedClub;
+
     return tabMatches && clubMatches;
   });
+
 
   return (
     <section className="section" id="fixtures">
@@ -1526,17 +1547,26 @@ function TopPlayers({ publicClubs = CLUBS }) {
           .select("*");
 
         if (error) throw error;
-        const result = (data || []).map((row) => ({
-          id: `${row.match_id}-${row.player_registration_id}`,
-          registrationId: row.player_registration_id,
-          name: row.player_name || "Unnamed player",
-          clubId: row.club_id,
-          goals: Number(row.goals) || 0,
-          assists: Number(row.assists) || 0,
-          yellowCards: Number(row.yellow_cards) || 0,
-          redCards: Number(row.red_cards) || 0,
-          totalPoints: Number(row.total_points) || 0,
-        }));
+
+        const result = (data || []).map((row) => {
+          const club = publicClubs.find(
+            (item) => String(item.id) === String(row.club_id)
+          );
+
+          return {
+            id: `${row.match_id}-${row.player_registration_id}`,
+            registrationId: row.player_registration_id,
+            name: row.player_name || "Unnamed player",
+            clubId: row.club_id,
+            club: club?.name || row.club_name || "Club TBC",
+            goals: Number(row.goals) || 0,
+            assists: Number(row.assists) || 0,
+            yellowCards: Number(row.yellow_cards) || 0,
+            redCards: Number(row.red_cards) || 0,
+            totalPoints: Number(row.total_points) || 0,
+          };
+        });
+
 
         if (active) {
           setPlayers(result);
@@ -1562,11 +1592,14 @@ function TopPlayers({ publicClubs = CLUBS }) {
     };
   }, []);
 
+
   const filteredPlayers = useMemo(() => {
     const totals = new Map();
 
     players.forEach((player) => {
-      const key = player.registrationId;
+      const key = player.registrationId
+        ? String(player.registrationId)
+        : `${player.name}-${player.clubId || player.club}`;
 
       if (!totals.has(key)) {
         totals.set(key, {
@@ -1586,13 +1619,17 @@ function TopPlayers({ publicClubs = CLUBS }) {
       total.yellowCards += player.yellowCards;
       total.redCards += player.redCards;
       total.totalPoints += player.totalPoints;
+
+      if (total.club === "Club TBC" && player.club !== "Club TBC") {
+        total.club = player.club;
+      }
     });
 
     return [...totals.values()]
       .filter(
         (player) =>
           selectedClub === "All Clubs" ||
-          player.clubId === selectedClub
+          player.club === selectedClub
       )
       .sort(
         (a, b) =>
@@ -1603,6 +1640,7 @@ function TopPlayers({ publicClubs = CLUBS }) {
       )
       .slice(0, 10);
   }, [players, selectedClub]);
+
 
   return (
     <section className="section" id="statistics">
@@ -1809,7 +1847,7 @@ export default function App() {
       active = false;
       clearInterval(refreshTimer);
     };
-  }, []);
+  }, [publicClubs]);
 
   useEffect(() => {
     if (!supabase || !supabaseConfigured) return undefined;
@@ -2141,6 +2179,49 @@ export default function App() {
 
         <TopPlayers publicClubs={publicClubs} />
 
+        <section className="section" id="register">
+          <div className="section-inner">
+            <SectionTitle
+              eyebrow="JOIN THE COMMUNITY"
+              title="REGISTER WITH US"
+              description="Become part of the Manav Rachna football community. Register as a player, coach or referee."
+            />
+
+            <RegistrationForm publicClubs={publicClubs} />
+          </div>
+        </section>
+
+        <section className="section" id="about">
+          <div className="section-inner">
+            <SectionTitle
+              eyebrow="ABOUT BHORA MUTAMBO"
+              title="ONE UNIVERSITY. ONE FOOTBALL COMMUNITY."
+              description="A platform built to bring the university's football community together."
+            />
+
+            <div className="about-content">
+              <p>
+                Manav Rachna Football Clubs brings together players, coaches,
+                referees and supporters through a shared passion for football.
+                The platform provides a central place to explore clubs, follow
+                fixtures and results, review league standings and track individual
+                player performances.
+              </p>
+
+              <p>
+                Bhora Mutambo supports the organisation and growth of university
+                football by making important football information more accessible
+                to the community.
+              </p>
+
+              <p>
+                Our community is built on discipline, teamwork, respect and
+                passion for the game.
+              </p>
+            </div>
+          </div>
+        </section>
+
       </main>
 
       <footer className="site-footer">
@@ -2163,9 +2244,6 @@ export default function App() {
           © {new Date().getFullYear()} Manav Rachna Football Clubs-v2
         </p>
       </footer>
-
-      {/* BHORA MUTAMBO FAREWELL COVER */}
-      <FarewellOverlay />
 
     </div>
   );

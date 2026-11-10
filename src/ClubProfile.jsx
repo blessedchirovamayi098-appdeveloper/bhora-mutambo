@@ -24,7 +24,23 @@ const nameOf = (row) =>
 
 const roleOf = (row) =>
   norm(first(row, ["role", "registration_type", "member_type", "official_role"], "player"));
+const positionOf = (row) =>
+  norm(
+    first(
+      row,
+      [
+        "position_or_specialty",
+        "position",
+        "playing_position",
+        "preferred_position",
+        "player_position",
+      ],
+      ""
+    )
+  );
 
+const isGoalkeeper = (row) =>
+  ["goalkeeper", "goal keeper", "gk"].includes(positionOf(row));
 const statusOf = (row) => norm(first(row, ["status", "approval_status"], ""));
 
 const photoOf = (row) => {
@@ -168,6 +184,7 @@ export default function ClubProfile({ club, onClose }) {
     events: [],
     lineups: [],
     suspensions: [],
+    performance: [],
   });
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState([]);
@@ -192,6 +209,7 @@ export default function ClubProfile({ club, onClose }) {
         ["events", "match_events"],
         ["lineups", "match_lineups"],
         ["suspensions", "suspensions"],
+        ["performance", "match_player_points"],
       ];
 
       const results = await Promise.all(
@@ -314,42 +332,41 @@ export default function ClubProfile({ club, onClose }) {
 
   const playerStats = useMemo(() => {
     const counts = new Map();
-    const emptyStats = () => ({ goals: 0, assists: 0, yellow: 0, red: 0 });
 
-    const getStats = (registrationId) => {
+    const emptyStats = () => ({
+      goals: 0,
+      assists: 0,
+      yellow: 0,
+      red: 0,
+      cleanSheets: 0,
+      penaltySaves: 0,
+      ownGoals: 0,
+      totalPoints: 0,
+    });
+
+    // Aggregate the official match points view for this club.
+    records.performance.forEach((row) => {
+      if (String(row.club_id) !== String(club?.id)) return;
+
+      const registrationId = row.player_registration_id;
+      if (!registrationId) return;
+
       const key = String(registrationId);
-      if (!counts.has(key)) counts.set(key, emptyStats());
-      return counts.get(key);
-    };
 
-    records.events.forEach((event) => {
-      const match = relatedMatches.find(
-        (item) => String(item.id) === String(event.match_id)
-      );
-      if (!match) return;
-      if (String(event.club_id) !== String(club?.id)) return;
-
-      const type = norm(event.event_type);
-      const scorerId = event.player_registration_id;
-
-      if (scorerId) {
-        const scorer = playerLookup.get(String(scorerId));
-        const scorerRole = scorer ? roleOf(scorer) : "player";
-
-        if (!isStaff({ role: scorerRole })) {
-          const scorerStats = getStats(scorerId);
-          if (type.includes("goal") && !type.includes("own")) scorerStats.goals += 1;
-          if (type.includes("yellow")) scorerStats.yellow += 1;
-          if (type.includes("red")) scorerStats.red += 1;
-        }
+      if (!counts.has(key)) {
+        counts.set(key, emptyStats());
       }
 
-      const assistId = event.assist_registration_id;
-      if (assistId && type.includes("goal") && !type.includes("own")) {
-        const assister = playerLookup.get(String(assistId));
-        const assisterRole = assister ? roleOf(assister) : "player";
-        if (!isStaff({ role: assisterRole })) getStats(assistId).assists += 1;
-      }
+      const stats = counts.get(key);
+
+      stats.goals += Number(row.goals || 0);
+      stats.assists += Number(row.assists || 0);
+      stats.yellow += Number(row.yellow_cards || 0);
+      stats.red += Number(row.red_cards || 0);
+      stats.cleanSheets += Number(row.clean_sheets || 0);
+      stats.penaltySaves += Number(row.penalty_saves || 0);
+      stats.ownGoals += Number(row.own_goals || 0);
+      stats.totalPoints += Number(row.total_points || 0);
     });
 
     return players
@@ -357,17 +374,11 @@ export default function ClubProfile({ club, onClose }) {
         const id = registrationKey(player) || player.id;
         const stats = counts.get(String(id)) || emptyStats();
 
-        const totalPoints =
-          stats.goals * 5 +
-          stats.assists * 3 -
-          stats.yellow -
-          stats.red * 3;
-
         return {
           ...player,
           registration_id: id,
           stats,
-          totalPoints,
+          totalPoints: stats.totalPoints,
         };
       })
       .sort(
@@ -376,7 +387,8 @@ export default function ClubProfile({ club, onClose }) {
           b.stats.goals - a.stats.goals ||
           b.stats.assists - a.stats.assists
       );
-  }, [players, records.events, relatedMatches, club?.id, playerLookup]);
+  }, [players, records.performance, club?.id]);
+
 
   const stats = useMemo(() => {
     const result = {
@@ -594,12 +606,51 @@ export default function ClubProfile({ club, onClose }) {
                     <div className="club-profile-person-body">
                       <h4>{nameOf(player)}</h4>
                       <p>{first(player, ["status"], "Approved squad")}</p>
-                      <div className="club-profile-mini-stats">
-                        <span><b>{player.stats.goals}</b>Goals</span>
-                        <span><b>{player.stats.assists}</b>Assists</span>
-                        <span><b>{player.stats.yellow}</b>Yellow</span>
-                        <span><b>{player.stats.red}</b>Red</span>
-                        <span><b>{player.totalPoints}</b>Total Points</span>
+                      <div
+                        className={`club-profile-mini-stats ${isGoalkeeper(player) ? "goalkeeper-stats" : ""
+                          }`}
+                      >
+                        <span>
+                          <b>{player.stats.goals}</b>
+                          Goals
+                        </span>
+
+                        <span>
+                          <b>{player.stats.assists}</b>
+                          Assists
+                        </span>
+
+                        <span>
+                          <b>{player.stats.yellow}</b>
+                          Yellow
+                        </span>
+
+                        <span>
+                          <b>{player.stats.red}</b>
+                          Red
+                        </span>
+                        <span>
+                          <b>{player.stats.ownGoals}</b>
+                          Own Goals
+                        </span>
+                        {isGoalkeeper(player) && (
+                          <>
+                            <span>
+                              <b>{player.stats.cleanSheets}</b>
+                              Clean Sheets
+                            </span>
+
+                            <span>
+                              <b>{player.stats.penaltySaves}</b>
+                              Penalty Saves
+                            </span>
+                          </>
+                        )}
+
+                        <span>
+                          <b>{player.totalPoints}</b>
+                          Total Points
+                        </span>
                       </div>
                     </div>
                   </article>

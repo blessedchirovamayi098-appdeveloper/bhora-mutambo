@@ -33,7 +33,14 @@ const COMPETITIONS = [
 ];
 
 const SEASONS = Array.from({ length: 24 }, (_, i) => `${2026 + i}-${2027 + i}`);
-const MATCH_STATUSES = ["Scheduled", "Live", "Completed", "Postponed", "Cancelled"];
+const MATCH_STATUSES = [
+  "Scheduled",
+  "Live",
+  "Result Pending",
+  "Completed",
+  "Postponed",
+  "Cancelled",
+];
 const PLAYER_POSITIONS = [
   "GK",
   "CB",
@@ -613,8 +620,10 @@ export default function AdminDashboard({ user, onSignOut }) {
 
   function closeEditor() {
     if (saving) return;
+
     setEditing(null);
     setDraft({});
+    setLogoFile(null);
   }
 
   function beginCreate() {
@@ -641,7 +650,13 @@ export default function AdminDashboard({ user, onSignOut }) {
     if (section === "clubs") {
       setLogoFile(null);
       setEditing({ mode: "create", primaryKey: "id" });
-      setDraft({ name: "", short_name: "", slug: "", description: "" });
+      setDraft({
+        name: "",
+        short_name: "",
+        slug: "",
+        description: "",
+        logo_path: "",
+      });
       return;
     }
 
@@ -694,6 +709,24 @@ export default function AdminDashboard({ user, onSignOut }) {
       });
       return;
     }
+
+    if (section === "match_events") {
+      setEditing({ mode: "create" });
+
+      setDraft({
+        match_id: "",
+        club_id: "",
+        player_registration_id: "",
+        assist_registration_id: "",
+        event_type: "goal",
+        minute: "",
+        notes: "",
+        created_by: user?.id || "",
+      });
+
+      return;
+    }
+
 
 
     if (["approved_roster", "coaches", "referees"].includes(section)) {
@@ -791,6 +824,12 @@ export default function AdminDashboard({ user, onSignOut }) {
       setDraft((old) => {
         const next = { ...old, [key]: nextValue };
 
+        if (section === "match_events" && key === "event_type") {
+          next.player_registration_id = "";
+          next.assist_registration_id = "";
+        }
+
+
         if (section === "approved_player_profiles" && key === "registration_id") {
           const registration = overview.registrations.find(
             (item) => item.id === nextValue
@@ -887,7 +926,13 @@ export default function AdminDashboard({ user, onSignOut }) {
         if (key === "away_club_id" && next.home_club_id === nextValue) {
           next.home_club_id = "";
         }
+        if (section === "match_lineups" && key === "player_registration_id") {
+          const player = overview.registrations.find(
+            (item) => item.id === nextValue
+          );
 
+          next.jersey_number = player?.jersey_number ?? "";
+        }
         return next;
       });
     };
@@ -944,7 +989,24 @@ export default function AdminDashboard({ user, onSignOut }) {
         ))}
       </select>
     );
+    if (section === "match_events" && key === "event_type") {
+      const eventOptions = [
+        { value: "goal", label: "Goal (+5 points)" },
+        { value: "own_goal", label: "Own Goal (-2 points)" },
+        { value: "penalty_missed", label: "Penalty Missed" },
+        { value: "penalty_save", label: "Penalty Save (+5 points)" },
+        { value: "clean_sheet", label: "Clean Sheet (+7 points)" },
+        { value: "yellow_card", label: "Yellow Card (-1 point)" },
+        { value: "red_card", label: "Red Card (-3 points)" },
+        { value: "substitution", label: "Substitution" },
+        { value: "injury", label: "Injury" },
+        { value: "other", label: "Other" },
+      ];
 
+      return field(
+        select(eventOptions, "Select event type")
+      );
+    }
     if (section === "suspensions" && key === "club_id") {
       return field(
         select(
@@ -1216,67 +1278,114 @@ export default function AdminDashboard({ user, onSignOut }) {
       }
     }
 
+    if (section === "match_events" && key === "player_registration_id") {
+      const goalkeeperEvent = ["clean_sheet", "penalty_save"].includes(
+        String(draft.event_type || "").toLowerCase()
+      );
 
-    if (section === "match_events") {
-      if (key === "event_type") {
-        return field(select(
-          ["goal", "own_goal", "penalty_goal", "penalty_missed", "yellow_card", "red_card", "substitution", "injury", "other"]
-            .map((item) => ({ value: item, label: labelize(item) })),
-          "Select event type"
-        ));
-      }
+      const approvedPlayers = overview.registrations.filter((player) =>
+        ["approved", "accepted"].includes(
+          String(player.status || "").trim().toLowerCase()
+        ) &&
+        String(player.role || "").trim().toLowerCase() === "player" &&
+        (!draft.club_id || player.club_id === draft.club_id)
+      );
 
-      if (key === "match_id") {
-        return field(select(
-          overview.matches.map((match) => ({
-            value: match.id,
-            label: `${clubs.find((club) => club.id === match.home_club_id)?.name || "Home"} vs ${clubs.find((club) => club.id === match.away_club_id)?.name || "Away"} · ${match.kickoff_at ? new Date(match.kickoff_at).toLocaleString() : ""}`,
-          })),
-          "Select match"
-        ));
-      }
-
-      if (key === "club_id") {
-        const match = overview.matches.find((item) => item.id === draft.match_id);
-        const matchClubs = match
-          ? clubs.filter((club) => [match.home_club_id, match.away_club_id].includes(club.id))
-          : [];
-
-        return field(select(
-          matchClubs.map((club) => ({ value: club.id, label: club.name })),
-          draft.match_id ? "Select match club" : "Select match first"
-        ));
-      }
-
-      if (key === "player_registration_id") {
-        const players = overview.registrations.filter((player) => !draft.club_id || player.club_id === draft.club_id);
-        return field(select(
-          players.map((player) => ({ value: player.id, label: player.football_name || player.full_name || player.id })),
-          "Optional: select player"
-        ));
-      }
-
-      if (key === "assist_registration_id") {
-        const players = overview.registrations.filter(
-          (player) =>
-            String(player.role || "").trim().toLowerCase() === "player" &&
-            String(player.status || "").trim().toLowerCase() === "approved" &&
-            player.club_id === draft.club_id &&
-            player.id !== draft.player_registration_id
-        );
-
-        return field(
-          select(
-            players.map((player) => ({
-              value: player.id,
-              label: player.football_name || player.full_name || player.id,
-            })),
-            "Optional: select assisting player"
+      const players = goalkeeperEvent
+        ? approvedPlayers.filter((player) =>
+          overview.profiles.some(
+            (profile) =>
+              profile.registration_id === player.id &&
+              profile.club_id === player.club_id &&
+              profile.is_published === true &&
+              ["goalkeeper", "goal keeper", "gk"].includes(
+                String(profile.position || "").trim().toLowerCase()
+              )
           )
-        );
+        )
+        : approvedPlayers;
+
+      return field(select(
+        players.map((player) => {
+          const profile = overview.profiles.find(
+            (item) => item.registration_id === player.id
+          );
+
+          return {
+            value: player.id,
+            label:
+              profile?.football_name ||
+              player.football_name ||
+              player.full_name ||
+              player.id,
+          };
+        }),
+        goalkeeperEvent
+          ? "Select goalkeeper"
+          : "Optional: select player"
+      ));
+    }
+
+
+    if (key === "match_id") {
+      return field(select(
+        overview.matches.map((match) => ({
+          value: match.id,
+          label: `${clubs.find((club) => club.id === match.home_club_id)?.name || "Home"} vs ${clubs.find((club) => club.id === match.away_club_id)?.name || "Away"} · ${match.kickoff_at ? new Date(match.kickoff_at).toLocaleString() : ""}`,
+        })),
+        "Select match"
+      ));
+    }
+
+    if (key === "club_id") {
+      const match = overview.matches.find((item) => item.id === draft.match_id);
+      const matchClubs = match
+        ? clubs.filter((club) => [match.home_club_id, match.away_club_id].includes(club.id))
+        : [];
+
+      return field(select(
+        matchClubs.map((club) => ({ value: club.id, label: club.name })),
+        draft.match_id ? "Select match club" : "Select match first"
+      ));
+    }
+
+    if (key === "player_registration_id") {
+      const players = overview.registrations.filter((player) => !draft.club_id || player.club_id === draft.club_id);
+      return field(select(
+        players.map((player) => ({ value: player.id, label: player.football_name || player.full_name || player.id })),
+        "Optional: select player"
+      ));
+    }
+
+
+    if (key === "assist_registration_id") {
+      if (draft.event_type !== "goal") {
+        return null;
       }
 
+      const players = overview.registrations.filter(
+        (player) =>
+          String(player.role || "").trim().toLowerCase() === "player" &&
+          ["approved", "accepted"].includes(
+            String(player.status || "").trim().toLowerCase()
+          ) &&
+          player.club_id === draft.club_id &&
+          player.id !== draft.player_registration_id
+      );
+
+      return field(
+        select(
+          players.map((player) => ({
+            value: player.id,
+            label: player.football_name || player.full_name || player.id,
+          })),
+          "Optional: select assisting player"
+        )
+      );
     }
+
+
+
 
     if (section === "approved_player_profiles") {
       if (key === "registration_id") {
@@ -1420,7 +1529,42 @@ export default function AdminDashboard({ user, onSignOut }) {
           return;
         }
       }
+      const player = draft.player_registration_id
+        ? overview.registrations.find(
+          (item) => item.id === draft.player_registration_id
+        )
+        : null;
 
+      const assist = draft.assist_registration_id
+        ? overview.registrations.find(
+          (item) => item.id === draft.assist_registration_id
+        )
+        : null;
+
+      const approvedPlayer = (person) =>
+        person &&
+        person.club_id === draft.club_id &&
+        String(person.role || "").trim().toLowerCase() === "player" &&
+        ["approved", "accepted"].includes(
+          String(person.status || "").trim().toLowerCase()
+        );
+
+      if (draft.player_registration_id && !approvedPlayer(player)) {
+        setError("Select an approved player belonging to the selected club.");
+        return;
+      }
+
+      if (draft.assist_registration_id) {
+        if (!approvedPlayer(assist)) {
+          setError("The assisting player must belong to the selected club and be approved.");
+          return;
+        }
+
+        if (assist.id === draft.player_registration_id) {
+          setError("The scorer and assisting player must be different.");
+          return;
+        }
+      }
       if (section === "match_lineups") {
         if (!draft.match_id || !draft.club_id || !draft.player_registration_id || !draft.lineup_role) {
           setError("Select a match, club, approved player and lineup role.");
@@ -1440,7 +1584,64 @@ export default function AdminDashboard({ user, onSignOut }) {
           return;
         }
       }
+      if (section === "match_events") {
+        const goalkeeperEvent = ["clean_sheet", "penalty_save"].includes(
+          String(draft.event_type || "").trim().toLowerCase()
+        );
+        if (draft.minute !== "" && draft.minute != null) {
+          const minute = Number(draft.minute);
 
+          if (!Number.isInteger(minute) || minute < 1 || minute > 130) {
+            setError("Event minute must be a whole number between 1 and 130.");
+            return;
+          }
+        }
+        if (!draft.match_id || !draft.club_id || !draft.event_type) {
+          setError("Select a match, club and event type.");
+          return;
+        }
+
+        const match = overview.matches.find(
+          (item) => item.id === draft.match_id
+        );
+
+        if (
+          !match ||
+          ![match.home_club_id, match.away_club_id].includes(draft.club_id)
+        ) {
+          setError("The selected club must belong to the selected match.");
+          return;
+        }
+
+        if (goalkeeperEvent) {
+          const goalkeeperRegistration = overview.registrations.find(
+            (player) =>
+              player.id === draft.player_registration_id &&
+              player.club_id === draft.club_id &&
+              String(player.role || "").trim().toLowerCase() === "player" &&
+              ["approved", "accepted"].includes(
+                String(player.status || "").trim().toLowerCase()
+              )
+          );
+
+          const goalkeeperProfile = overview.profiles.find(
+            (profile) =>
+              profile.registration_id === draft.player_registration_id &&
+              profile.club_id === draft.club_id &&
+              profile.is_published === true &&
+              ["goalkeeper", "goal keeper", "gk"].includes(
+                String(profile.position || "").trim().toLowerCase()
+              )
+          );
+
+          if (!goalkeeperRegistration || !goalkeeperProfile) {
+            setError(
+              "Select an approved goalkeeper belonging to the selected club."
+            );
+            return;
+          }
+        }
+      }
       let payload = {};
 
       if (section === "approved_player_profiles") {
@@ -1478,15 +1679,12 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       Object.entries(draft).forEach(([key, value]) => {
 
-        if ([
-          "id",
-          "uuid",
-          "created_at",
-          "updated_at",
-          "reviewed_at",
-          "created_by",
-          "reviewed_by",
-        ].includes(key)) { }
+        if (
+          ["id", "uuid", "created_at", "updated_at", "reviewed_at", "reviewed_by"]
+            .includes(key)
+        ) {
+          return;
+        }
 
 
         // Important: match notes must never be converted to NULL.
@@ -1883,8 +2081,12 @@ export default function AdminDashboard({ user, onSignOut }) {
     setNotice("");
 
     try {
+      const targetTable = ["coaches", "referees"].includes(section)
+        ? "approved_roster"
+        : section;
+
       const { data, error: deleteError } = await supabase
-        .from(section)
+        .from(targetTable)
         .delete()
         .eq(primaryKey, row[primaryKey])
         .select();
@@ -1921,6 +2123,7 @@ export default function AdminDashboard({ user, onSignOut }) {
     setDraft({});
     setError("");
     setNotice("");
+    setLogoFile(null);
   }
 
   const canAdd = [
