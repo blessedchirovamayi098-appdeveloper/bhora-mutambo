@@ -1,10 +1,15 @@
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 import "./ClubProfile.css";
 
 const first = (row, keys, fallback = "") => {
   for (const key of keys) {
-    if (row?.[key] !== undefined && row?.[key] !== null && row[key] !== "") {
+    if (
+      row?.[key] !== undefined &&
+      row?.[key] !== null &&
+      row[key] !== ""
+    ) {
       return row[key];
     }
   }
@@ -23,7 +28,14 @@ const nameOf = (row) =>
   );
 
 const roleOf = (row) =>
-  norm(first(row, ["role", "registration_type", "member_type", "official_role"], "player"));
+  norm(
+    first(
+      row,
+      ["role", "registration_type", "member_type", "official_role"],
+      "player"
+    )
+  );
+
 const positionOf = (row) =>
   norm(
     first(
@@ -41,7 +53,18 @@ const positionOf = (row) =>
 
 const isGoalkeeper = (row) =>
   ["goalkeeper", "goal keeper", "gk"].includes(positionOf(row));
-const statusOf = (row) => norm(first(row, ["status", "approval_status"], ""));
+
+const statusOf = (row) =>
+  norm(first(row, ["status", "approval_status"], ""));
+
+const approved = (row) =>
+  ["approved", "active", "accepted"].includes(statusOf(row));
+
+const isStaff = (row) =>
+  /coach|manager|referee|official|trainer|assistant coach/.test(roleOf(row));
+
+const registrationKey = (row) =>
+  first(row, ["registration_id", "player_registration_id"], null);
 
 const photoOf = (row) => {
   const photo = first(
@@ -60,39 +83,51 @@ const photoOf = (row) => {
   );
 
   if (!photo) return "";
-  if (/^https?:\/\//i.test(String(photo))) return photo;
 
-  const { data } = supabase.storage.from("football-images").getPublicUrl(photo);
+  if (/^https?:\/\//i.test(String(photo))) {
+    return String(photo);
+  }
+
+  if (!supabase) return "";
+
+  const { data } = supabase.storage
+    .from("football-images")
+    .getPublicUrl(String(photo));
+
   return data?.publicUrl || "";
 };
-
-const approved = (row) => ["approved", "active", "accepted"].includes(statusOf(row));
-
-const isStaff = (row) =>
-  /coach|manager|referee|official|trainer|assistant coach/.test(roleOf(row));
 
 const clubMatch = (row, club) => {
   if (!row || !club) return false;
 
   const id = first(row, ["club_id", "team_id", "club_uuid"], null);
-  if (id && club.id) return String(id) === String(club.id);
 
-  const clubName = norm(first(row, ["club_name", "club", "team_name"], ""));
+  // Prefer the actual club ID. Do not fall back to a name
+  // when a different club ID is already present.
+  if (id && club.id) {
+    return String(id) === String(club.id);
+  }
+
+  const clubName = norm(
+    first(row, ["club_name", "club", "team_name"], "")
+  );
+
   return Boolean(
     clubName &&
-    [club.name, club.short_name, club.slug].some((value) => norm(value) === clubName)
+    [club.name, club.short_name, club.slug].some(
+      (value) => norm(value) === clubName
+    )
   );
 };
-
-const registrationKey = (row) =>
-  first(row, ["registration_id", "player_registration_id"], null);
 
 const mergePerson = (base, extra) => {
   const merged = { ...base };
 
   Object.entries(extra || {}).forEach(([key, value]) => {
     if (
-      (merged[key] === undefined || merged[key] === null || merged[key] === "") &&
+      (merged[key] === undefined ||
+        merged[key] === null ||
+        merged[key] === "") &&
       value !== undefined &&
       value !== null &&
       value !== ""
@@ -101,7 +136,9 @@ const mergePerson = (base, extra) => {
     }
   });
 
-  merged.registration_id = registrationKey(base) || registrationKey(extra);
+  merged.registration_id =
+    registrationKey(base) || registrationKey(extra);
+
   return merged;
 };
 
@@ -110,6 +147,8 @@ const buildPeople = (registrations, roster, profiles) => {
   const people = new Map();
 
   registrations.forEach((row) => {
+    if (!row.id) return;
+
     people.set(`registration:${row.id}`, {
       ...row,
       registration_id: row.id,
@@ -126,14 +165,23 @@ const buildPeople = (registrations, roster, profiles) => {
       if (existing) {
         people.set(key, mergePerson(existing, row));
       } else {
-        people.set(key, { ...row, registration_id: registrationId });
+        people.set(key, {
+          ...row,
+          registration_id: registrationId,
+        });
       }
+
       return;
     }
 
+    // Keep unlinked records separate. Never use their own table ID
+    // as a registration ID.
     if (row.id) {
       const key = `standalone:${row.id}`;
-      if (!people.has(key)) people.set(key, { ...row });
+
+      if (!people.has(key)) {
+        people.set(key, { ...row });
+      }
     }
   });
 
@@ -153,15 +201,25 @@ const score = (match, side) => {
 };
 
 const isCompleted = (match) =>
-  ["completed", "complete", "finished", "full time", "full-time", "ft"].includes(
-    norm(match?.status)
-  );
+  [
+    "completed",
+    "complete",
+    "finished",
+    "full time",
+    "full-time",
+    "ft",
+  ].includes(norm(match?.status));
 
 const matchDate = (match) =>
-  first(match, ["kickoff_at", "match_date", "date", "scheduled_at", "created_at"], "");
+  first(
+    match,
+    ["kickoff_at", "match_date", "date", "scheduled_at", "created_at"],
+    ""
+  );
 
 const fmtDate = (value) => {
   if (!value) return "Date TBC";
+
   const date = new Date(value);
 
   return Number.isNaN(date.getTime())
@@ -173,19 +231,21 @@ const fmtDate = (value) => {
     });
 };
 
+const emptyRecords = {
+  clubs: [],
+  roster: [],
+  profiles: [],
+  registrations: [],
+  matches: [],
+  events: [],
+  lineups: [],
+  suspensions: [],
+  performance: [],
+};
+
 export default function ClubProfile({ club, onClose }) {
   const [tab, setTab] = useState("overview");
-  const [records, setRecords] = useState({
-    clubs: [],
-    roster: [],
-    profiles: [],
-    registrations: [],
-    matches: [],
-    events: [],
-    lineups: [],
-    suspensions: [],
-    performance: [],
-  });
+  const [records, setRecords] = useState(emptyRecords);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState([]);
 
@@ -194,6 +254,8 @@ export default function ClubProfile({ club, onClose }) {
 
     async function load() {
       if (!supabase || !club?.id) {
+        setRecords(emptyRecords);
+        setUnavailable([]);
         setLoading(false);
         return;
       }
@@ -212,32 +274,60 @@ export default function ClubProfile({ club, onClose }) {
         ["performance", "match_player_points"],
       ];
 
-      const results = await Promise.all(
-        tables.map(async ([key, table]) => {
-          let query = supabase.from(table).select("*");
+      try {
+        const results = await Promise.all(
+          tables.map(async ([key, table]) => {
+            try {
+              let query = supabase.from(table).select("*");
 
-          if (key === "registrations") {
-            query = query.eq("club_id", club.id).eq("status", "Approved");
+              if (key === "registrations") {
+                query = query
+                  .eq("club_id", club.id)
+                  .eq("status", "Approved");
+              }
+
+              const { data, error } = await query.limit(2500);
+
+              return {
+                key,
+                data: data || [],
+                error: error?.message || "",
+              };
+            } catch (error) {
+              return {
+                key,
+                data: [],
+                error: error?.message || "Unable to load table",
+              };
+            }
+          })
+        );
+
+        if (!active) return;
+
+        const next = { ...emptyRecords };
+        const missing = [];
+
+        results.forEach(({ key, data, error }) => {
+          next[key] = data;
+
+          if (error) {
+            missing.push(key);
+            console.error(`Club profile: unable to load ${key}:`, error);
           }
+        });
 
-          const { data, error } = await query.limit(2500);
-          return { key, data: data || [], error: error?.message || "" };
-        })
-      );
+        setRecords(next);
+        setUnavailable(missing);
+      } catch (error) {
+        if (!active) return;
 
-      if (!active) return;
-
-      const next = {};
-      const missing = [];
-
-      results.forEach(({ key, data, error }) => {
-        next[key] = data;
-        if (error) missing.push(key);
-      });
-
-      setRecords(next);
-      setUnavailable(missing);
-      setLoading(false);
+        console.error("Club profile loading error:", error);
+        setRecords(emptyRecords);
+        setUnavailable(tables.map(([key]) => key));
+      } finally {
+        if (active) setLoading(false);
+      }
     }
 
     load();
@@ -249,9 +339,16 @@ export default function ClubProfile({ club, onClose }) {
 
   const clubNames = useMemo(() => {
     const map = new Map();
+
     records.clubs.forEach((item) => {
-      map.set(String(item.id), item.name || item.short_name || "Club");
+      if (item.id) {
+        map.set(
+          String(item.id),
+          item.name || item.short_name || "Club"
+        );
+      }
     });
+
     return map;
   }, [records.clubs]);
 
@@ -266,11 +363,15 @@ export default function ClubProfile({ club, onClose }) {
             String(match.home_club_id) === String(club?.id) ||
             String(match.away_club_id) === String(club?.id)
         )
-        .sort(
-          (a, b) =>
-            new Date(matchDate(b) || 0).getTime() -
-            new Date(matchDate(a) || 0).getTime()
-        ),
+        .sort((a, b) => {
+          const dateA = new Date(matchDate(a) || 0).getTime();
+          const dateB = new Date(matchDate(b) || 0).getTime();
+
+          return (
+            (Number.isNaN(dateB) ? 0 : dateB) -
+            (Number.isNaN(dateA) ? 0 : dateA)
+          );
+        }),
     [records.matches, club?.id]
   );
 
@@ -283,8 +384,13 @@ export default function ClubProfile({ club, onClose }) {
   );
 
   const roster = useMemo(() => {
-    const clubRoster = records.roster.filter((row) => clubMatch(row, club));
-    const clubProfiles = records.profiles.filter((row) => clubMatch(row, club));
+    const clubRoster = records.roster.filter((row) =>
+      clubMatch(row, club)
+    );
+
+    const clubProfiles = records.profiles.filter((row) =>
+      clubMatch(row, club)
+    );
 
     const eligibleRoster = clubRoster.filter((row) => {
       const status = statusOf(row);
@@ -296,39 +402,74 @@ export default function ClubProfile({ club, onClose }) {
       return !status || approved(row);
     });
 
-    return buildPeople(registrations, eligibleRoster, eligibleProfiles);
+    return buildPeople(
+      registrations,
+      eligibleRoster,
+      eligibleProfiles
+    );
   }, [records.roster, records.profiles, registrations, club]);
 
-  const players = useMemo(() => roster.filter((row) => !isStaff(row)), [roster]);
-  const staff = useMemo(
-    () =>
-      roster.filter(
-        (row) => isStaff(row) && row.is_published === true
-      ),
+  const players = useMemo(
+    () => roster.filter((row) => !isStaff(row)),
     [roster]
   );
 
+  const staff = useMemo(
+    () =>
+      records.roster.filter((row) => {
+        const role = String(row.role || "").trim().toLowerCase();
+        const status = String(row.status || "").trim().toLowerCase();
+
+        return (
+          row.club_id === club?.id &&
+          ["coach", "referee"].includes(role) &&
+          status === "approved" &&
+          row.is_published === true
+        );
+      }),
+    [records.roster, club?.id]
+  );
+
+  // Map only real registration IDs to people.
+  // Do not treat approved_roster.id or approved_player_profiles.id
+  // as a registrations.id.
   const playerLookup = useMemo(() => {
     const map = new Map();
 
-    // Put registration rows first, then merge linked rows without losing their role.
     records.registrations.forEach((row) => {
-      if (row.id) map.set(String(row.id), row);
-    });
-
-    [...records.roster, ...records.profiles].forEach((row) => {
-      if (row.id && !map.has(String(row.id))) map.set(String(row.id), row);
-
-      const registrationId = registrationKey(row);
-      if (registrationId) {
-        const key = String(registrationId);
-        const existing = map.get(key);
-        map.set(key, existing ? mergePerson(existing, row) : { ...row, registration_id: registrationId });
+      if (row.id) {
+        map.set(String(row.id), {
+          ...row,
+          registration_id: row.id,
+        });
       }
     });
 
+    [...records.roster, ...records.profiles].forEach((row) => {
+      const registrationId = registrationKey(row);
+
+      if (!registrationId) return;
+
+      const key = String(registrationId);
+      const existing = map.get(key);
+
+      map.set(
+        key,
+        existing
+          ? mergePerson(existing, row)
+          : {
+            ...row,
+            registration_id: registrationId,
+          }
+      );
+    });
+
     return map;
-  }, [records.registrations, records.roster, records.profiles]);
+  }, [
+    records.registrations,
+    records.roster,
+    records.profiles,
+  ]);
 
   const playerStats = useMemo(() => {
     const counts = new Map();
@@ -344,11 +485,16 @@ export default function ClubProfile({ club, onClose }) {
       totalPoints: 0,
     });
 
-    // Aggregate the official match points view for this club.
+    // Aggregate the official match_player_points records.
     records.performance.forEach((row) => {
       if (String(row.club_id) !== String(club?.id)) return;
 
-      const registrationId = row.player_registration_id;
+      const registrationId = first(
+        row,
+        ["player_registration_id", "registration_id"],
+        null
+      );
+
       if (!registrationId) return;
 
       const key = String(registrationId);
@@ -389,7 +535,6 @@ export default function ClubProfile({ club, onClose }) {
       );
   }, [players, records.performance, club?.id]);
 
-
   const stats = useMemo(() => {
     const result = {
       played: 0,
@@ -411,7 +556,9 @@ export default function ClubProfile({ club, onClose }) {
         return;
       }
 
-      const isHome = String(match.home_club_id) === String(club?.id);
+      const isHome =
+        String(match.home_club_id) === String(club?.id);
+
       const gf = score(match, isHome ? "home" : "away");
       const ga = score(match, isHome ? "away" : "home");
 
@@ -429,7 +576,9 @@ export default function ClubProfile({ club, onClose }) {
         result.lost++;
       }
 
-      if (ga === 0) result.cleanSheets++;
+      if (ga === 0) {
+        result.cleanSheets++;
+      }
     });
 
     return result;
@@ -451,7 +600,9 @@ export default function ClubProfile({ club, onClose }) {
 
   const matchName = (match, side) =>
     clubNameFor(
-      side === "home" ? match.home_club_id : match.away_club_id,
+      side === "home"
+        ? match.home_club_id
+        : match.away_club_id,
       side === "home" ? "Home club" : "Away club"
     );
 
@@ -464,14 +615,25 @@ export default function ClubProfile({ club, onClose }) {
       <div className="club-profile-head">
         <div className="club-profile-identity">
           <span className="club-profile-mark">
-            {String(club?.short_name || club?.name || "FC").slice(0, 3).toUpperCase()}
+            {String(
+              club?.short_name || club?.name || "FC"
+            )
+              .slice(0, 3)
+              .toUpperCase()}
           </span>
+
           <div>
-            <span className="club-profile-kicker">OFFICIAL CLUB PROFILE</span>
+            <span className="club-profile-kicker">
+              OFFICIAL CLUB PROFILE
+            </span>
             <h2>{club?.name}</h2>
-            <p>{club?.description || "Club information, squad and performance overview."}</p>
+            <p>
+              {club?.description ||
+                "Club information, squad and performance overview."}
+            </p>
           </div>
         </div>
+
         <button
           className="club-profile-close"
           onClick={onClose}
@@ -482,7 +644,11 @@ export default function ClubProfile({ club, onClose }) {
         </button>
       </div>
 
-      <div className="club-profile-tabs" role="tablist" aria-label="Club profile sections">
+      <div
+        className="club-profile-tabs"
+        role="tablist"
+        aria-label="Club profile sections"
+      >
         {[
           ["overview", "Overview"],
           ["squad", "Players & squad"],
@@ -504,13 +670,15 @@ export default function ClubProfile({ club, onClose }) {
       </div>
 
       {loading ? (
-        <div className="club-profile-loading">Loading live club records from Supabase…</div>
+        <div className="club-profile-loading">
+          Loading live club records from Supabase…
+        </div>
       ) : (
         <>
           {unavailable.length > 0 && (
             <p className="club-profile-note">
-              Some sections could not be loaded. Check Supabase table permissions for:{" "}
-              {unavailable.join(", ")}.
+              Some sections could not be loaded. Check Supabase
+              table permissions for: {unavailable.join(", ")}.
             </p>
           )}
 
@@ -525,7 +693,10 @@ export default function ClubProfile({ club, onClose }) {
                   ["Points", stats.points],
                   ["Clean sheets", stats.cleanSheets],
                 ].map(([label, value]) => (
-                  <div className="club-profile-stat" key={label}>
+                  <div
+                    className="club-profile-stat"
+                    key={label}
+                  >
                     <span>{label}</span>
                     <strong>{value}</strong>
                   </div>
@@ -536,8 +707,14 @@ export default function ClubProfile({ club, onClose }) {
                 <div className="club-profile-card">
                   <div className="club-profile-card-title">
                     <h3>Recent matches</h3>
-                    <button type="button" onClick={() => setTab("matches")}>View all →</button>
+                    <button
+                      type="button"
+                      onClick={() => setTab("matches")}
+                    >
+                      View all →
+                    </button>
                   </div>
+
                   {relatedMatches.slice(0, 4).length ? (
                     relatedMatches.slice(0, 4).map((match) => (
                       <MatchRow
@@ -548,29 +725,54 @@ export default function ClubProfile({ club, onClose }) {
                       />
                     ))
                   ) : (
-                    <p className="club-profile-empty">No match records are linked to this club yet.</p>
+                    <p className="club-profile-empty">
+                      No match records are linked to this club yet.
+                    </p>
                   )}
                 </div>
 
                 <div className="club-profile-card">
                   <div className="club-profile-card-title">
                     <h3>Top performers</h3>
-                    <button type="button" onClick={() => setTab("squad")}>View squad →</button>
+                    <button
+                      type="button"
+                      onClick={() => setTab("squad")}
+                    >
+                      View squad →
+                    </button>
                   </div>
+
                   {playerStats.slice(0, 5).map((player) => (
-                    <div className="club-profile-performer" key={player.registration_id || player.id}>
+                    <div
+                      className="club-profile-performer"
+                      key={
+                        player.registration_id || player.id
+                      }
+                    >
                       <span className="club-profile-player-avatar">
                         {nameOf(player).slice(0, 1).toUpperCase()}
                       </span>
+
                       <div>
                         <strong>{nameOf(player)}</strong>
-                        <small>{first(player, ["position_or_specialty", "position"], "Player")}</small>
+                        <small>
+                          {first(
+                            player,
+                            ["position_or_specialty", "position"],
+                            "Player"
+                          )}
+                        </small>
                       </div>
+
                       <b>{player.stats.goals} G</b>
                     </div>
                   ))}
+
                   {!playerStats.length && (
-                    <p className="club-profile-empty">Player performance will appear when match events are recorded.</p>
+                    <p className="club-profile-empty">
+                      Player performance will appear when match
+                      events are recorded.
+                    </p>
                   )}
                 </div>
               </div>
@@ -581,83 +783,135 @@ export default function ClubProfile({ club, onClose }) {
             <>
               <div className="club-profile-section-title">
                 <div>
-                  <span className="club-profile-kicker">FIRST TEAM</span>
+                  <span className="club-profile-kicker">
+                    FIRST TEAM
+                  </span>
                   <h3>Players & squad</h3>
                 </div>
                 <span>{players.length} squad records</span>
               </div>
+
               <div className="club-profile-people-grid">
-                {playerStats.map((player) => (
-                  <article className="club-profile-person" key={player.registration_id || player.id}>
-                    <div className="club-profile-photo">
-                      <span>{nameOf(player).slice(0, 1).toUpperCase()}</span>
-                      {photoOf(player) && (
-                        <img
-                          src={photoOf(player)}
-                          alt={`${nameOf(player)} profile`}
-                          onError={(event) => { event.currentTarget.style.display = "none"; }}
-                        />
-                      )}
-                    </div>
-                    <div className="club-profile-person-banner">
-                      <span>{first(player, ["jersey_number", "shirt_number", "number"], "—")}</span>
-                      <small>{first(player, ["position_or_specialty", "position"], "Squad member")}</small>
-                    </div>
-                    <div className="club-profile-person-body">
-                      <h4>{nameOf(player)}</h4>
-                      <p>{first(player, ["status"], "Approved squad")}</p>
-                      <div
-                        className={`club-profile-mini-stats ${isGoalkeeper(player) ? "goalkeeper-stats" : ""
-                          }`}
-                      >
+                {playerStats.map((player) => {
+                  const photo = photoOf(player);
+
+                  return (
+                    <article
+                      className="club-profile-person"
+                      key={
+                        player.registration_id || player.id
+                      }
+                    >
+                      <div className="club-profile-photo">
                         <span>
-                          <b>{player.stats.goals}</b>
-                          Goals
+                          {nameOf(player)
+                            .slice(0, 1)
+                            .toUpperCase()}
                         </span>
 
-                        <span>
-                          <b>{player.stats.assists}</b>
-                          Assists
-                        </span>
-
-                        <span>
-                          <b>{player.stats.yellow}</b>
-                          Yellow
-                        </span>
-
-                        <span>
-                          <b>{player.stats.red}</b>
-                          Red
-                        </span>
-                        <span>
-                          <b>{player.stats.ownGoals}</b>
-                          Own Goals
-                        </span>
-                        {isGoalkeeper(player) && (
-                          <>
-                            <span>
-                              <b>{player.stats.cleanSheets}</b>
-                              Clean Sheets
-                            </span>
-
-                            <span>
-                              <b>{player.stats.penaltySaves}</b>
-                              Penalty Saves
-                            </span>
-                          </>
+                        {photo && (
+                          <img
+                            src={photo}
+                            alt={`${nameOf(player)} profile`}
+                            onError={(event) => {
+                              event.currentTarget.style.display =
+                                "none";
+                            }}
+                          />
                         )}
-
-                        <span>
-                          <b>{player.totalPoints}</b>
-                          Total Points
-                        </span>
                       </div>
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="club-profile-person-banner">
+                        <span>
+                          {first(
+                            player,
+                            ["jersey_number", "shirt_number", "number"],
+                            "—"
+                          )}
+                        </span>
+                        <small>
+                          {first(
+                            player,
+                            ["position_or_specialty", "position"],
+                            "Squad member"
+                          )}
+                        </small>
+                      </div>
+
+                      <div className="club-profile-person-body">
+                        <h4>{nameOf(player)}</h4>
+                        <p>
+                          {first(
+                            player,
+                            ["status"],
+                            "Approved squad"
+                          )}
+                        </p>
+
+                        <div
+                          className={`club-profile-mini-stats ${isGoalkeeper(player)
+                            ? "goalkeeper-stats"
+                            : ""
+                            }`}
+                        >
+                          <span>
+                            <b>{player.stats.goals}</b>
+                            Goals
+                          </span>
+
+                          <span>
+                            <b>{player.stats.assists}</b>
+                            Assists
+                          </span>
+
+                          <span>
+                            <b>{player.stats.yellow}</b>
+                            Yellow
+                          </span>
+
+                          <span>
+                            <b>{player.stats.red}</b>
+                            Red
+                          </span>
+
+                          <span>
+                            <b>{player.stats.ownGoals}</b>
+                            Own Goals
+                          </span>
+
+                          {isGoalkeeper(player) && (
+                            <>
+                              <span>
+                                <b>
+                                  {player.stats.cleanSheets}
+                                </b>
+                                Clean Sheets
+                              </span>
+
+                              <span>
+                                <b>
+                                  {player.stats.penaltySaves}
+                                </b>
+                                Penalty Saves
+                              </span>
+                            </>
+                          )}
+
+                          <span>
+                            <b>{player.totalPoints}</b>
+                            Total Points
+                          </span>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
+
               {!players.length && (
-                <p className="club-profile-empty">No approved players were found for this club.</p>
+                <p className="club-profile-empty">
+                  No approved players were found for this club.
+                </p>
               )}
             </>
           )}
@@ -666,41 +920,82 @@ export default function ClubProfile({ club, onClose }) {
             <>
               <div className="club-profile-section-title">
                 <div>
-                  <span className="club-profile-kicker">CLUB PERSONNEL</span>
+                  <span className="club-profile-kicker">
+                    CLUB PERSONNEL
+                  </span>
                   <h3>Coaches, managers & referees</h3>
                 </div>
                 <span>{staff.length} staff records</span>
               </div>
+
               <div className="club-profile-people-grid">
-                {staff.map((person) => (
-                  <article className="club-profile-person staff" key={person.registration_id || person.id}>
-                    <div className="club-profile-photo">
-                      <span>{nameOf(person).slice(0, 1).toUpperCase()}</span>
-                      {photoOf(person) && (
-                        <img
-                          src={photoOf(person)}
-                          alt={`${nameOf(person)} profile`}
-                          onError={(event) => { event.currentTarget.style.display = "none"; }}
-                        />
-                      )}
-                    </div>
-                    <div className="club-profile-person-banner">
-                      <span>✦</span>
-                      <small>{first(person, ["role", "position_or_specialty"], "Official")}</small>
-                    </div>
-                    <div className="club-profile-person-body">
-                      <h4>{nameOf(person)}</h4>
-                      <p>{first(person, ["experience"], "Club official")}</p>
-                      <div className="club-profile-contact">
-                        {first(person, ["email"], "")}
-                        {first(person, ["phone"], "") ? ` · ${person.phone}` : ""}
+                {staff.map((person) => {
+                  const photo = photoOf(person);
+
+                  return (
+                    <article
+                      className="club-profile-person staff"
+                      key={
+                        person.registration_id || person.id
+                      }
+                    >
+                      <div className="club-profile-photo">
+                        <span>
+                          {nameOf(person)
+                            .slice(0, 1)
+                            .toUpperCase()}
+                        </span>
+
+                        {photo && (
+                          <img
+                            src={photo}
+                            alt={`${nameOf(person)} profile`}
+                            onError={(event) => {
+                              event.currentTarget.style.display =
+                                "none";
+                            }}
+                          />
+                        )}
                       </div>
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="club-profile-person-banner">
+                        <span>✦</span>
+                        <small>
+                          {first(
+                            person,
+                            ["role", "position_or_specialty"],
+                            "Official"
+                          )}
+                        </small>
+                      </div>
+
+                      <div className="club-profile-person-body">
+                        <h4>{nameOf(person)}</h4>
+                        <p>
+                          {first(
+                            person,
+                            ["experience"],
+                            "Club official"
+                          )}
+                        </p>
+
+                        <div className="club-profile-contact">
+                          {first(person, ["email"], "")}
+                          {first(person, ["phone"], "")
+                            ? ` · ${person.phone}`
+                            : ""}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
+
               {!staff.length && (
-                <p className="club-profile-empty">No approved staff records are linked to this club yet.</p>
+                <p className="club-profile-empty">
+                  No approved staff records are linked to this
+                  club yet.
+                </p>
               )}
             </>
           )}
@@ -709,11 +1004,14 @@ export default function ClubProfile({ club, onClose }) {
             <>
               <div className="club-profile-section-title">
                 <div>
-                  <span className="club-profile-kicker">PERFORMANCE CENTRE</span>
+                  <span className="club-profile-kicker">
+                    PERFORMANCE CENTRE
+                  </span>
                   <h3>Match results & club statistics</h3>
                 </div>
                 <span>{stats.played} completed matches</span>
               </div>
+
               <div className="club-profile-stat-grid compact">
                 {[
                   ["Played", stats.played],
@@ -725,12 +1023,20 @@ export default function ClubProfile({ club, onClose }) {
                   ["Goal difference", stats.gf - stats.ga],
                   ["League points", stats.points],
                 ].map(([label, value]) => (
-                  <div className="club-profile-stat" key={label}>
+                  <div
+                    className="club-profile-stat"
+                    key={label}
+                  >
                     <span>{label}</span>
-                    <strong>{label === "Goal difference" && value > 0 ? `+${value}` : value}</strong>
+                    <strong>
+                      {label === "Goal difference" && value > 0
+                        ? `+${value}`
+                        : value}
+                    </strong>
                   </div>
                 ))}
               </div>
+
               <div className="club-profile-match-reports">
                 {relatedMatches.map((match) => (
                   <ClubMatchReport
@@ -744,8 +1050,12 @@ export default function ClubProfile({ club, onClose }) {
                   />
                 ))}
               </div>
+
               {!relatedMatches.length && (
-                <p className="club-profile-empty">Fixtures will appear here after the club is scheduled in a match.</p>
+                <p className="club-profile-empty">
+                  Fixtures will appear here after the club is
+                  scheduled in a match.
+                </p>
               )}
             </>
           )}
@@ -754,31 +1064,65 @@ export default function ClubProfile({ club, onClose }) {
             <>
               <div className="club-profile-section-title">
                 <div>
-                  <span className="club-profile-kicker">FAIR PLAY</span>
+                  <span className="club-profile-kicker">
+                    FAIR PLAY
+                  </span>
                   <h3>Discipline & suspensions</h3>
                 </div>
                 <span>{suspensions.length} records</span>
               </div>
+
               <div className="club-profile-card">
                 {suspensions.map((item) => {
-                  const player = playerLookup.get(String(item.player_registration_id));
+                  const player = playerLookup.get(
+                    String(item.player_registration_id)
+                  );
+
                   return (
-                    <div className="club-profile-discipline-row" key={item.id}>
+                    <div
+                      className="club-profile-discipline-row"
+                      key={item.id}
+                    >
                       <div>
-                        <strong>{player ? nameOf(player) : "Player record"}</strong>
-                        <small>{first(item, ["reason"], "Disciplinary record")}</small>
+                        <strong>
+                          {player
+                            ? nameOf(player)
+                            : "Player record"}
+                        </strong>
+                        <small>
+                          {first(
+                            item,
+                            ["reason"],
+                            "Disciplinary record"
+                          )}
+                        </small>
                       </div>
-                      <span className={`discipline-status ${norm(item.status)}`}>
+
+                      <span
+                        className={`discipline-status ${norm(
+                          item.status
+                        )}`}
+                      >
                         {item.status || "Recorded"}
                       </span>
+
                       <small>
-                        {Math.max(0, Number(item.matches_total || 0) - Number(item.matches_served || 0))} matches remaining
+                        {Math.max(
+                          0,
+                          Number(item.matches_total || 0) -
+                          Number(item.matches_served || 0)
+                        )}{" "}
+                        matches remaining
                       </small>
                     </div>
                   );
                 })}
+
                 {!suspensions.length && (
-                  <p className="club-profile-empty">No suspensions or disciplinary records are linked to this club.</p>
+                  <p className="club-profile-empty">
+                    No suspensions or disciplinary records are
+                    linked to this club.
+                  </p>
                 )}
               </div>
             </>
@@ -789,7 +1133,14 @@ export default function ClubProfile({ club, onClose }) {
   );
 }
 
-function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLookup }) {
+function ClubMatchReport({
+  match,
+  homeName,
+  awayName,
+  lineups,
+  events,
+  playerLookup,
+}) {
   const homeScore = score(match, "home");
   const awayScore = score(match, "away");
   const completed = isCompleted(match);
@@ -799,30 +1150,64 @@ function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLoo
   );
 
   const matchEvents = events
-    .filter((row) => String(row.match_id) === String(match.id))
-    .sort((a, b) => Number(a.minute || 0) - Number(b.minute || 0));
+    .filter(
+      (row) => String(row.match_id) === String(match.id)
+    )
+    .sort(
+      (a, b) =>
+        Number(a.minute || 0) - Number(b.minute || 0)
+    );
 
   const teamRows = (teamId) =>
-    matchLineups.filter((row) => String(row.club_id) === String(teamId));
+    matchLineups.filter(
+      (row) => String(row.club_id) === String(teamId)
+    );
 
   const teams = [
     { id: match.home_club_id, name: homeName },
     { id: match.away_club_id, name: awayName },
   ];
 
-  const playerFor = (row) =>
-    playerLookup.get(String(row.player_registration_id));
+  const playerFor = (row) => {
+    const registrationId = first(
+      row,
+      ["player_registration_id", "registration_id"],
+      null
+    );
+
+    return registrationId
+      ? playerLookup.get(String(registrationId))
+      : null;
+  };
+
+  const assistFor = (row) => {
+    const registrationId = row.assist_registration_id;
+
+    return registrationId
+      ? playerLookup.get(String(registrationId))
+      : null;
+  };
 
   return (
     <article className="club-profile-match-report">
       <div className="club-profile-match-score">
         <div>
           <span>{homeName}</span>
-          <strong>{completed && homeScore !== null ? homeScore : "—"}</strong>
+          <strong>
+            {completed && homeScore !== null
+              ? homeScore
+              : "—"}
+          </strong>
         </div>
+
         <span className="club-profile-vs">VS</span>
+
         <div>
-          <strong>{completed && awayScore !== null ? awayScore : "—"}</strong>
+          <strong>
+            {completed && awayScore !== null
+              ? awayScore
+              : "—"}
+          </strong>
           <span>{awayName}</span>
         </div>
       </div>
@@ -830,7 +1215,10 @@ function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLoo
       <div className="club-profile-match-meta">
         <span>{fmtDate(matchDate(match))}</span>
         <span>{first(match, ["venue"], "Venue TBC")}</span>
-        <span className={`club-match-status ${completed ? "done" : "upcoming"}`}>
+        <span
+          className={`club-match-status ${completed ? "done" : "upcoming"
+            }`}
+        >
           {match.status || "Scheduled"}
         </span>
       </div>
@@ -839,21 +1227,41 @@ function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLoo
         <div className="club-profile-lineup-grid">
           {teams.map((team) => {
             const rows = teamRows(team.id);
+
             return (
-              <div className="club-profile-lineup-team" key={String(team.id)}>
+              <div
+                className="club-profile-lineup-team"
+                key={String(team.id)}
+              >
                 <h4>{team.name}</h4>
+
                 <div className="club-profile-lineup-pitch">
                   {rows.map((row) => {
                     const player = playerFor(row);
+
                     return (
-                      <div className="club-profile-lineup-player" key={row.id}>
-                        <span>{row.jersey_number ?? "—"}</span>
-                        <strong>{player ? nameOf(player) : "Player"}</strong>
-                        <small>{row.position || row.lineup_role || "Squad member"}</small>
+                      <div
+                        className="club-profile-lineup-player"
+                        key={row.id}
+                      >
+                        <span>
+                          {row.jersey_number ?? "—"}
+                        </span>
+                        <strong>
+                          {player ? nameOf(player) : "Player"}
+                        </strong>
+                        <small>
+                          {row.position ||
+                            row.lineup_role ||
+                            "Squad member"}
+                        </small>
                       </div>
                     );
                   })}
-                  {!rows.length && <p>No lineup records for this club.</p>}
+
+                  {!rows.length && (
+                    <p>No lineup records for this club.</p>
+                  )}
                 </div>
               </div>
             );
@@ -864,19 +1272,48 @@ function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLoo
       {matchEvents.length > 0 && (
         <div className="club-profile-events">
           <h4>Match events</h4>
+
           {matchEvents.map((event) => {
             const player = playerFor(event);
-            const type = String(event.event_type || "Event").replaceAll("_", " ");
+            const assist = assistFor(event);
+
+            const type = String(
+              event.event_type || "Event"
+            ).replaceAll("_", " ");
+
             const lower = type.toLowerCase();
 
             return (
               <div key={event.id}>
-                <time>{event.minute ?? "—"}{event.minute != null ? "′" : ""}</time>
-                <span className={`club-event-icon ${lower.includes("red") ? "red" : lower.includes("yellow") ? "yellow" : ""}`}>
+                <time>
+                  {event.minute ?? "—"}
+                  {event.minute != null ? "′" : ""}
+                </time>
+
+                <span
+                  className={`club-event-icon ${lower.includes("red")
+                    ? "red"
+                    : lower.includes("yellow")
+                      ? "yellow"
+                      : ""
+                    }`}
+                >
                   {type}
                 </span>
-                <strong>{player ? nameOf(player) : "Match record"}</strong>
-                <small>{event.notes || ""}</small>
+
+                <strong>
+                  {player ? nameOf(player) : "Match record"}
+                </strong>
+
+                {assist && (
+                  <small>
+                    Assist: {nameOf(assist)}
+                  </small>
+                )}
+
+                {event.notes && (
+                  <small>{event.notes}</small>
+                )}
               </div>
             );
           })}
@@ -885,7 +1322,8 @@ function ClubMatchReport({ match, homeName, awayName, lineups, events, playerLoo
 
       {!matchLineups.length && !matchEvents.length && (
         <p className="club-profile-empty compact-empty">
-          Lineups and match events will appear when an administrator records them.
+          Lineups and match events will appear when an
+          administrator records them.
         </p>
       )}
     </article>
@@ -902,15 +1340,27 @@ function MatchRow({ match, homeName, awayName }) {
       <div>
         <strong>{homeName}</strong>
         <span>
-          {completed && homeScore !== null && awayScore !== null
+          {completed &&
+            homeScore !== null &&
+            awayScore !== null
             ? `${homeScore} – ${awayScore}`
             : " vs "}
         </span>
         <strong>{awayName}</strong>
       </div>
-      <small>{fmtDate(matchDate(match))} · {match.venue || "Venue TBC"}</small>
-      <span className={`club-match-status ${completed ? "done" : "upcoming"}`}>
-        {completed ? "Completed" : match.status || "Scheduled"}
+
+      <small>
+        {fmtDate(matchDate(match))} ·{" "}
+        {match.venue || "Venue TBC"}
+      </small>
+
+      <span
+        className={`club-match-status ${completed ? "done" : "upcoming"
+          }`}
+      >
+        {completed
+          ? "Completed"
+          : match.status || "Scheduled"}
       </span>
     </div>
   );

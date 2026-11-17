@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseConfigured } from "./supabase";
 import AdminDashboard from "./AdminDashboard";
-
 import ClubProfile from "./ClubProfile";
-
 import "./App.css";
 
 const CLUBS = [
@@ -365,98 +364,41 @@ function PlayerPerformanceTable({ match }) {
 
 function MatchReport({ match }) {
   const allPlayers = [
-    ...match.homeLineup.map((player) => ({ ...player, club: match.home })),
-    ...match.awayLineup.map((player) => ({ ...player, club: match.away })),
+    ...match.homeLineup.map((player) => ({
+      ...player,
+      club: match.home,
+    })),
+    ...match.awayLineup.map((player) => ({
+      ...player,
+      club: match.away,
+    })),
   ];
 
   const totalGoals = allPlayers.reduce(
-    (total, player) => total + (Number(player.goals) || 0), 0
+    (total, player) => total + (Number(player.goals) || 0),
+    0
   );
+
   const totalAssists = allPlayers.reduce(
-    (total, player) => total + (Number(player.assists) || 0), 0
+    (total, player) => total + (Number(player.assists) || 0),
+    0
   );
+
   const totalYellowCards = allPlayers.reduce(
-    (total, player) => total + getCardCount(player.cards, "Y"), 0
+    (total, player) =>
+      total + (Number(player.cards?.match(/(\d+)Y/)?.[1]) || 0),
+    0
   );
+
   const totalRedCards = allPlayers.reduce(
-    (total, player) => total + getCardCount(player.cards, "R"), 0
+    (total, player) =>
+      total + (Number(player.cards?.match(/(\d+)R/)?.[1]) || 0),
+    0
   );
 
-  const normalizeEvent = (event) => {
-    const rawType = String(event.type || event.event_type || "")
-      .toLowerCase()
-      .replace(/[\s-]+/g, "_");
-
-    const description = String(
-      event.description || event.notes || event.event_type || "Match event"
-    );
-
-    const lower = description.toLowerCase();
-
-    const aliases = {
-      yellow_card: "yellow",
-      red_card: "red",
-      own_goal: "own_goal",
-      penalty_goal: "goal",
-      penalty_missed: "penalty_missed",
-      penalty_save: "penalty_save",
-      substitution: "substitution",
-      clean_sheet: "clean_sheet",
-    };
-
-    let type = aliases[rawType] || rawType;
-
-    if (!type || type === "other" || type === "event") {
-      if (lower.includes("red card")) type = "red";
-      else if (lower.includes("yellow card")) type = "yellow";
-      else if (lower.includes("own goal")) type = "own_goal";
-      else if (lower.includes("penalty") && lower.includes("miss")) type = "penalty_missed";
-      else if (lower.includes("penalty") && lower.includes("save")) type = "penalty_save";
-      else if (lower.includes("goal")) type = "goal";
-      else if (lower.includes("entered") || lower.includes("left the match")) type = "substitution";
-      else if (lower.includes("injury")) type = "injury";
-      else type = "event";
-    }
-
-    const labels = {
-      goal: "GOAL",
-      own_goal: "OWN GOAL",
-      yellow: "YELLOW CARD",
-      red: "RED CARD",
-      substitution: "SUBSTITUTION",
-      penalty_missed: "PENALTY MISSED",
-      penalty_save: "PENALTY SAVE",
-      clean_sheet: "CLEAN SHEET",
-      injury: "INJURY",
-    };
-
-    const icons = {
-      goal: "⚽",
-      own_goal: "⚽",
-      yellow: "🟨",
-      red: "🟥",
-      substitution: "↕",
-      penalty_missed: "✖",
-      penalty_save: "🧤",
-      clean_sheet: "🧤",
-      injury: "⚕",
-    };
-
-    return {
-      ...event,
-      type,
-      description,
-      label: labels[type] || "MATCH EVENT",
-      icon: icons[type] || "•",
-      minute: Number.isFinite(Number(event.minute))
-        ? Number(event.minute)
-        : null,
-    };
-  };
-
-  const events = (match.events || [])
-    .map(normalizeEvent)
-    .sort((a, b) => (a.minute ?? 999) - (b.minute ?? 999));
+  const events = [...(match.events || [])].sort(
+    (a, b) => a.minute - b.minute
+  );
 
   return (
     <div className="match-report">
@@ -464,28 +406,54 @@ function MatchReport({ match }) {
         <h3>Match summary</h3>
 
         <div className="match-summary-grid">
-          <div><small>Goals in player records</small><strong>{totalGoals}</strong></div>
-          <div><small>Assists</small><strong>{totalAssists}</strong></div>
-          <div><small>Yellow cards</small><strong>{totalYellowCards}</strong></div>
-          <div><small>Red cards</small><strong>{totalRedCards}</strong></div>
+          <div>
+            <small>Goals in player records</small>
+            <strong>{totalGoals}</strong>
+          </div>
+
+          <div>
+            <small>Assists</small>
+            <strong>{totalAssists}</strong>
+          </div>
+
+          <div>
+            <small>Yellow cards</small>
+            <strong>{totalYellowCards}</strong>
+          </div>
+
+          <div>
+            <small>Red cards</small>
+            <strong>{totalRedCards}</strong>
+          </div>
         </div>
 
         <p className="data-note">
-          Summary totals are calculated from the published player records.
-          They may differ from the final score if player statistics are incomplete.
+          These totals come from the displayed demo player records. They
+          may differ from the match score because the demo data is incomplete.
         </p>
       </div>
 
       <div className="match-report-section">
         <h3>Lineups and formations</h3>
+
         <div className="lineups-grid">
-          <TeamLineup teamName={match.home} formation={match.homeFormation} players={match.homeLineup} />
-          <TeamLineup teamName={match.away} formation={match.awayFormation} players={match.awayLineup} />
+          <TeamLineup
+            teamName={match.home}
+            formation={match.homeFormation}
+            players={match.homeLineup}
+          />
+
+          <TeamLineup
+            teamName={match.away}
+            formation={match.awayFormation}
+            players={match.awayLineup}
+          />
         </div>
       </div>
 
       <div className="match-report-section">
         <h3>Player performance</h3>
+
         <PlayerPerformanceTable match={match} />
       </div>
 
@@ -493,31 +461,74 @@ function MatchReport({ match }) {
         <h3>Match timeline</h3>
 
         {events.length === 0 ? (
-          <p className="empty-state">No timed match events have been recorded.</p>
+          <p className="empty-state">
+            No timed match events have been recorded.
+          </p>
         ) : (
           <div className="match-timeline">
-            {events.map((event, index) => (
-              <article
-                className={`timeline-event timeline-${event.type}`}
-                key={`${event.id || event.minute}-${event.description}-${index}`}
-              >
-                <div className="timeline-minute">
-                  {event.minute == null ? "—" : `${event.minute}'`}
-                </div>
-                <div className="timeline-marker" aria-hidden="true">
-                  {event.icon}
-                </div>
-                <div className="timeline-content">
-                  <strong>{event.label}</strong>
-                  <p>{event.description}</p>
-                </div>
-              </article>
-            ))}
+            {events.map((event, index) => {
+              const description = event.description || "";
+              const lowerDescription = description.toLowerCase();
+
+              const type = event.type
+                ? event.type.toLowerCase()
+                : lowerDescription.includes("red card")
+                  ? "red"
+                  : lowerDescription.includes("yellow card")
+                    ? "yellow"
+                    : lowerDescription.includes("goal")
+                      ? "goal"
+                      : lowerDescription.includes("entered") ||
+                        lowerDescription.includes("left the match")
+                        ? "substitution"
+                        : "event";
+
+              return (
+                <article
+                  className={`timeline-event timeline-${type}`}
+                  key={`${event.minute}-${description}-${index}`}
+                >
+                  <div className="timeline-minute">
+                    {event.minute}'
+                  </div>
+
+                  <div className="timeline-marker" aria-hidden="true">
+                    {type === "goal"
+                      ? "⚽"
+                      : type === "yellow"
+                        ? "🟨"
+                        : type === "red"
+                          ? "🟥"
+                          : type === "substitution"
+                            ? "↕"
+                            : "•"}
+                  </div>
+
+                  <div className="timeline-content">
+                    <strong>
+                      {type === "goal"
+                        ? "GOAL"
+                        : type === "yellow"
+                          ? "YELLOW CARD"
+                          : type === "red"
+                            ? "RED CARD"
+                            : type === "substitution"
+                              ? "SUBSTITUTION"
+                              : "MATCH EVENT"}
+                    </strong>
+
+                    <p>{description}</p>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 
         <p className="data-note">
-          Timeline entries are taken from the match events recorded in Supabase.
+          Only events recorded in the match data are shown. Card events
+          need their own minute and player details to appear at the correct
+          time in the timeline.
         </p>
       </div>
     </div>
@@ -596,8 +607,8 @@ function PublicMatchClock({ match }) {
 function MatchCard({ match }) {
   const [lineupOpen, setLineupOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+
   const completed = match.status === "Completed";
-  const resultPending = match.status === "Result Pending";
   const isLive = match.status === "Live";
 
   return (
@@ -613,26 +624,16 @@ function MatchCard({ match }) {
         </div>
 
 
-
         <span
           className={`match-status ${completed
             ? "match-status-completed"
-            : resultPending
-              ? "match-status-scheduled"
-              : isLive
-                ? "match-status-live"
-                : "match-status-scheduled"
+            : isLive
+              ? "match-status-live"
+              : "match-status-scheduled"
             }`}
         >
-          {completed
-            ? "Full Time"
-            : resultPending
-              ? "Result Pending"
-              : isLive
-                ? "LIVE"
-                : "Scheduled"}
+          {completed ? "Full Time" : isLive ? "LIVE" : "Scheduled"}
         </span>
-
 
         <PublicMatchClock match={match} />
 
@@ -728,82 +729,6 @@ function MatchCard({ match }) {
 
 
 function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
-  const [lineupsByMatch, setLineupsByMatch] = useState({});
-  const [performanceByMatch, setPerformanceByMatch] = useState({});
-  const [pointsByMatch, setPointsByMatch] = useState({});
-  const [eventsByMatch, setEventsByMatch] = useState({});
-  const [matchDetailsError, setMatchDetailsError] = useState("");
-  useEffect(() => {
-    let active = true;
-
-    async function loadMatchDetails() {
-      if (!supabase || liveMatches.length === 0) {
-        setLineupsByMatch({});
-        setPerformanceByMatch({});
-        setPointsByMatch({});
-        setEventsByMatch({});
-        setMatchDetailsError("");
-        return;
-      }
-
-      const matchIds = liveMatches.map((match) => match.id).filter(Boolean);
-
-      if (matchIds.length === 0) return;
-
-      const results = await Promise.all([
-        supabase
-          .from("match_centre_lineups")
-          .select("*")
-          .in("match_id", matchIds)
-          .eq("is_published", true),
-
-        supabase
-          .from("match_centre_player_performance")
-          .select("*")
-          .in("match_id", matchIds),
-
-        supabase
-          .from("match_player_points")
-          .select("*")
-          .in("match_id", matchIds),
-
-        supabase
-          .from("match_events")
-          .select("*")
-          .in("match_id", matchIds)
-          .order("minute", { ascending: true, nullsFirst: false })
-          .order("created_at", { ascending: true }),
-      ]);
-
-      if (!active) return;
-
-      const failed = results.find((result) => result.error);
-
-      if (failed) {
-        console.error("Failed to load match details:", failed.error);
-        setMatchDetailsError(failed.error.message);
-        return;
-      }
-
-      const groupByMatch = (rows) =>
-        (rows || []).reduce((grouped, row) => {
-          (grouped[row.match_id] ||= []).push(row);
-          return grouped;
-        }, {});
-
-      setLineupsByMatch(groupByMatch(results[0].data));
-      setPerformanceByMatch(groupByMatch(results[1].data));
-      setPointsByMatch(groupByMatch(results[2].data));
-      setEventsByMatch(groupByMatch(results[3].data));
-      setMatchDetailsError("");
-    }
-
-    loadMatchDetails();
-
-    return () => {
-      active = false;
-    };
-  }, [liveMatches]);
   const [matchTab, setMatchTab] = useState("upcoming");
   const [selectedClub, setSelectedClub] = useState("All Clubs");
   const completedStatuses = [
@@ -876,97 +801,9 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
       halfTime: value(["half_time_score", "half_time"], null),
       homeFormation: value(["home_formation"], "4-3-3"), awayFormation: value(["away_formation"], "4-3-3"),
 
-      homeLineup: (lineupsByMatch[row.id] || [])
-
-        .filter((player) => {
-          if (row.home_club_id != null && player.club_id != null) {
-            return String(player.club_id) === String(row.home_club_id);
-          }
-
-          const homeName = clubById(
-            row.home_club_id,
-            row.home_club_name || row.home_club || row.home_team
-          );
-
-          return (
-            String(player.club_name || "").toLowerCase() ===
-            String(homeName).toLowerCase()
-          );
-        })
-
-        .map((player) => {
-          const performance = (performanceByMatch[row.id] || []).find(
-            (item) =>
-              item.player_registration_id === player.player_registration_id
-          );
-
-          const points = (pointsByMatch[row.id] || []).find(
-            (item) =>
-              item.player_registration_id === player.player_registration_id
-          );
-
-          return {
-            ...player,
-            name: player.player_name,
-            number: player.jersey_number,
-            position: player.position || player.lineup_role || "",
-            goals: performance?.goals ?? points?.goals ?? 0,
-            assists: points?.assists ?? 0,
-            minutes: performance?.minutes ?? "—",
-            cards: `${performance?.yellow_cards ?? points?.yellow_cards ?? 0}Y${performance?.red_cards ?? points?.red_cards ?? 0
-              }R`,
-            rating: performance?.rating ?? null,
-          };
-        }),
-
-      awayLineup: (lineupsByMatch[row.id] || [])
-
-        .filter((player) => {
-          if (row.away_club_id != null && player.club_id != null) {
-            return String(player.club_id) === String(row.away_club_id);
-          }
-
-          const awayName = clubById(
-            row.away_club_id,
-            row.away_club_name || row.away_club || row.away_team
-          );
-
-          return (
-            String(player.club_name || "").toLowerCase() ===
-            String(awayName).toLowerCase()
-          );
-        })
-
-        .map((player) => {
-          const performance = (performanceByMatch[row.id] || []).find(
-            (item) =>
-              item.player_registration_id === player.player_registration_id
-          );
-
-          const points = (pointsByMatch[row.id] || []).find(
-            (item) =>
-              item.player_registration_id === player.player_registration_id
-          );
-
-          return {
-            ...player,
-            name: player.player_name,
-            number: player.jersey_number,
-            position: player.position || player.lineup_role || "",
-            goals: performance?.goals ?? points?.goals ?? 0,
-            assists: points?.assists ?? 0,
-            minutes: performance?.minutes ?? "—",
-            cards: `${performance?.yellow_cards ?? points?.yellow_cards ?? 0}Y${performance?.red_cards ?? points?.red_cards ?? 0
-              }R`,
-            rating: performance?.rating ?? null,
-          };
-        }),
-
-      events: (eventsByMatch[row.id] || []).map((event) => ({
-        ...event,
-        type: event.event_type,
-        description: event.notes || event.event_type || "Match event",
-      })),
+      homeLineup: [],
+      awayLineup: [],
+      events: [],
       clockPhase: value(["clock_phase"], "not_started"),
       clockElapsedSeconds: value(["clock_elapsed_seconds"], 0),
       clockStartedAt: value(["clock_started_at"], null),
@@ -976,25 +813,14 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
 
   }) : [];
 
-
   const matches = sourceMatches.filter((match) => {
-    const isCompleted =
-      match.status === "Completed" ||
-      match.status === "Result Pending";
-
     const tabMatches =
       matchTab === "upcoming"
         ? match.status === "Scheduled" || match.status === "Live"
-        : isCompleted;
-
-    const clubMatches =
-      selectedClub === "All Clubs" ||
-      match.home === selectedClub ||
-      match.away === selectedClub;
-
+        : match.status === "Completed";
+    const clubMatches = selectedClub === "All Clubs" || match.home === selectedClub || match.away === selectedClub;
     return tabMatches && clubMatches;
   });
-
 
   return (
     <section className="section" id="fixtures">
@@ -1066,6 +892,9 @@ function MatchCentre({ liveMatches = [], publicClubs = CLUBS }) {
 }
 
 function RegistrationForm({ publicClubs = [] }) {
+  const [votingPin, setVotingPin] = useState("");
+  const [pinCopied, setPinCopied] = useState(false);
+  const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     fullName: "",
     footballName: "",
@@ -1219,42 +1048,42 @@ function RegistrationForm({ publicClubs = [] }) {
         throw new Error(`Photo upload failed: ${uploadError.message}`);
       }
 
-      const registration = {
-        full_name: form.fullName.trim(),
-        football_name: form.footballName.trim(),
-        email: form.email.trim().toLowerCase(),
-        phone: form.phone,
-        role: form.role,
-        club_id: club.id,
-        club_name: club.name,
-        jersey_number:
-          form.role === "Player" ? Number(form.jerseyNumber) : null,
-        experience: form.experience || null,
-        message: form.message.trim() || null,
-        photo_path: filePath,
-        status: "Pending",
-        reviewed_by: null,
-        reviewed_at: null,
-        is_team_captain: false,
-      };
+      const { data, error: registrationError } = await supabase.rpc(
+        "register_member_with_voting_pin",
+        {
+          p_full_name: form.fullName.trim(),
+          p_football_name: form.footballName.trim(),
+          p_email: form.email.trim().toLowerCase(),
+          p_phone: form.phone,
+          p_role: form.role,
+          p_club_id: club.id,
+          p_jersey_number:
+            form.role === "Player" ? Number(form.jerseyNumber) : null,
+          p_experience: form.experience || null,
+          p_message: form.message.trim() || null,
+          p_photo_path: filePath,
+        }
+      );
 
-      const { error: insertError } = await supabase
-        .from("registrations")
-        .insert(registration);
+      if (registrationError) {
+        throw new Error(registrationError.message);
+      }
 
-      if (insertError) {
-        // Remove the uploaded image if saving the registration fails.
-        await supabase.storage
-          .from("football-images")
-          .remove([filePath]);
 
+      const result = data?.[0];
+
+      if (!result?.voting_pin || !result?.registration_id) {
         throw new Error(
-          `Registration database insert failed: ${insertError.message}`
+          "Registration was saved, but the voting PIN was not returned. Contact the administrator."
         );
       }
 
+      // Save the newly generated PIN for display to the member.
+      setVotingPin(result.voting_pin);
+      setPinCopied(false);
+
       setNotice(
-        "Registration submitted successfully! Your details and profile picture have been saved for review."
+        "Registration submitted successfully! Your details and profile picture have been saved for review. Save your voting PIN below."
       );
 
       setForm({
@@ -1272,8 +1101,10 @@ function RegistrationForm({ publicClubs = [] }) {
       setPhoto(null);
       setPreview("");
 
-      const fileInput = document.getElementById("profilePicture");
-      if (fileInput) fileInput.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
     } catch (err) {
       console.error("Registration submission failed:", err);
       setError(
@@ -1313,6 +1144,7 @@ function RegistrationForm({ publicClubs = [] }) {
             id="profilePicture"
             name="profilePicture"
             type="file"
+            ref={fileInputRef}
             accept="image/*"
             required
             onChange={handlePhotoChange}
@@ -1495,7 +1327,43 @@ function RegistrationForm({ publicClubs = [] }) {
           {notice}
         </p>
       )}
+      {error && <div className="error-message">{error}</div>}
 
+      {notice && <div className="success-message">{notice}</div>}
+
+      {votingPin && (
+        <div className="voting-pin-result">
+          <h3>Your Voting PIN</h3>
+
+          <p>
+            Your registration has been submitted. Keep this PIN private.
+            You will need it to verify yourself when voting.
+          </p>
+
+          <div className="voting-pin-number">
+            {votingPin}
+          </div>
+
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(votingPin);
+                setPinCopied(true);
+              } catch {
+                setPinCopied(false);
+                setError("Unable to copy automatically. Please write down your PIN.");
+              }
+            }}
+          >
+            {pinCopied ? "PIN copied" : "Copy PIN"}
+          </button>
+
+          <p>
+            Save this PIN now. It will not be displayed again after you leave this page.
+          </p>
+        </div>
+      )}
       <button
         className="primary-button submit-button"
         type="submit"
@@ -1520,149 +1388,266 @@ function RegistrationForm({ publicClubs = [] }) {
 function TopPlayers({ publicClubs = CLUBS }) {
   const [selectedClub, setSelectedClub] = useState("All Clubs");
   const [players, setPlayers] = useState([]);
+  const [votingPin, setVotingPin] = useState("");
+  const [pinCopied, setPinCopied] = useState(false);
+  const [coaches, setCoaches] = useState([]);
+  const [referees, setReferees] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+
+  const [loadErrors, setLoadErrors] = useState({
+    players: "",
+    coaches: "",
+    referees: "",
+  });
 
   useEffect(() => {
     let active = true;
 
-    async function loadPlayers() {
-      setLoading(true);
-      setLoadError("");
-
+    async function loadLeaderboards() {
       if (!supabase || !supabaseConfigured) {
         if (active) {
           setPlayers([]);
-          setLoadError(
-            "Connect Supabase to display official player statistics."
-          );
+          setCoaches([]);
+          setReferees([]);
+          setLoadErrors({
+            players: "Connect Supabase to display official player statistics.",
+            coaches: "Connect Supabase to display official coach rankings.",
+            referees: "Connect Supabase to display official referee rankings.",
+          });
           setLoading(false);
         }
         return;
       }
 
       try {
-        const { data, error } = await supabase
-          .from("match_player_points")
-          .select("*");
-
-        if (error) throw error;
-
-        const result = (data || []).map((row) => {
-          const club = publicClubs.find(
-            (item) => String(item.id) === String(row.club_id)
-          );
+        const loadView = async (viewName, columns) => {
+          const { data, error } = await supabase
+            .from(viewName)
+            .select(columns)
+            .limit(2500);
 
           return {
-            id: `${row.match_id}-${row.player_registration_id}`,
-            registrationId: row.player_registration_id,
-            name: row.player_name || "Unnamed player",
-            clubId: row.club_id,
-            club: club?.name || row.club_name || "Club TBC",
-            goals: Number(row.goals) || 0,
-            assists: Number(row.assists) || 0,
-            yellowCards: Number(row.yellow_cards) || 0,
-            redCards: Number(row.red_cards) || 0,
-            totalPoints: Number(row.total_points) || 0,
+            rows: data || [],
+            error: error?.message || "",
           };
+        };
+
+        const [playerResult, coachResult, refereeResult] = await Promise.all([
+          loadView(
+            "public_player_leaderboard",
+            "rank,registration_id,participant_name,club_id,club_name,match_performance_points,voting_points,total_points,goals,assists,yellow_cards,red_cards,matches_recorded,voting_matches,total_votes"
+          ),
+          loadView(
+            "public_coach_leaderboard",
+            "rank,registration_id,participant_name,club_id,club_name,voting_points,total_votes,voting_matches"
+          ),
+          loadView(
+            "public_referee_leaderboard",
+            "rank,registration_id,participant_name,club_id,club_name,voting_points,total_votes,voting_matches"
+          ),
+        ]);
+
+        if (!active) return;
+
+        const normalise = (row, role) => ({
+          registrationId: row.registration_id || `${role}-${row.participant_name || row.player || "unknown"}`,
+          name: row.participant_name || row.player || row.name || "Unnamed participant",
+          clubId: row.club_id == null ? "" : String(row.club_id),
+          club: row.club_name || row.club || "Club not assigned",
+          rank: Number(row.rank) || null,
+          matchPerformancePoints: Number(row.match_performance_points) || 0,
+          votingPoints: Number(row.voting_points) || 0,
+          totalPoints: Number(row.total_points ?? row.voting_points) || 0,
+          goals: Number(row.goals) || 0,
+          assists: Number(row.assists) || 0,
+          yellowCards: Number(row.yellow_cards) || 0,
+          redCards: Number(row.red_cards) || 0,
+          matchesRecorded: Number(row.matches_recorded) || 0,
+          votingMatches: Number(row.voting_matches) || 0,
+          totalVotes: Number(row.total_votes) || 0,
         });
 
-
-        if (active) {
-          setPlayers(result);
-          setLoading(false);
-        }
+        setPlayers(playerResult.rows.map((row) => normalise(row, "player")));
+        setCoaches(coachResult.rows.map((row) => normalise(row, "coach")));
+        setReferees(refereeResult.rows.map((row) => normalise(row, "referee")));
+        setLoadErrors({
+          players: playerResult.error,
+          coaches: coachResult.error,
+          referees: refereeResult.error,
+        });
+        setLoading(false);
       } catch (error) {
-        console.error("Failed to load player performance:", error);
-
+        console.error("Failed to load public leaderboards:", error);
         if (active) {
-          setPlayers([]);
-          setLoadError(
-            `Player statistics could not be loaded: ${error.message}`
-          );
+          setLoadErrors({
+            players: error?.message || "Player leaderboard could not be loaded.",
+            coaches: error?.message || "Coach leaderboard could not be loaded.",
+            referees: error?.message || "Referee leaderboard could not be loaded.",
+          });
           setLoading(false);
         }
       }
     }
 
-    loadPlayers();
+    loadLeaderboards();
+    const refreshTimer = window.setInterval(loadLeaderboards, 30000);
 
     return () => {
       active = false;
+      window.clearInterval(refreshTimer);
     };
   }, []);
 
+  const filterAndRank = useCallback((rows, role) => {
+    const filtered = rows.filter((row) =>
+      selectedClub === "All Clubs" ||
+      row.clubId === selectedClub ||
+      row.club === selectedClub
+    );
 
-  const filteredPlayers = useMemo(() => {
-    const totals = new Map();
-
-    players.forEach((player) => {
-      const key = player.registrationId
-        ? String(player.registrationId)
-        : `${player.name}-${player.clubId || player.club}`;
-
-      if (!totals.has(key)) {
-        totals.set(key, {
-          ...player,
-          goals: 0,
-          assists: 0,
-          yellowCards: 0,
-          redCards: 0,
-          totalPoints: 0,
-        });
-      }
-
-      const total = totals.get(key);
-
-      total.goals += player.goals;
-      total.assists += player.assists;
-      total.yellowCards += player.yellowCards;
-      total.redCards += player.redCards;
-      total.totalPoints += player.totalPoints;
-
-      if (total.club === "Club TBC" && player.club !== "Club TBC") {
-        total.club = player.club;
-      }
-    });
-
-    return [...totals.values()]
-      .filter(
-        (player) =>
-          selectedClub === "All Clubs" ||
-          player.club === selectedClub
-      )
-      .sort(
-        (a, b) =>
+    filtered.sort((a, b) => {
+      if (role === "player") {
+        return (
           b.totalPoints - a.totalPoints ||
+          b.matchPerformancePoints - a.matchPerformancePoints ||
           b.goals - a.goals ||
           b.assists - a.assists ||
+          b.votingPoints - a.votingPoints ||
           a.name.localeCompare(b.name)
-      )
-      .slice(0, 10);
-  }, [players, selectedClub]);
+        );
+      }
 
+      return (
+        b.votingPoints - a.votingPoints ||
+        b.totalVotes - a.totalVotes ||
+        b.votingMatches - a.votingMatches ||
+        a.name.localeCompare(b.name)
+      );
+    });
+
+    return filtered.slice(0, 10);
+  }, [selectedClub]);
+
+  const topPlayers = useMemo(
+    () => filterAndRank(players, "player"),
+    [players, filterAndRank]
+  );
+  const topCoaches = useMemo(
+    () => filterAndRank(coaches, "coach"),
+    [coaches, filterAndRank]
+  );
+  const topReferees = useMemo(
+    () => filterAndRank(referees, "referee"),
+    [referees, filterAndRank]
+  );
+
+  const renderParticipantLeaderboard = (title, rows, role, error) => (
+    <div className="match-report-section public-leaderboard-section">
+      <h3>{title}</h3>
+
+      {error ? (
+        <p className="empty-state" role="alert">
+          {title} could not be loaded: {error}
+        </p>
+      ) : rows.length > 0 ? (
+        <div className="table-wrap">
+          <table className="standings-table leaderboard-table">
+            {role === "player" ? (
+              <>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Club</th>
+                    <th>Match Points</th>
+                    <th>Voting Points</th>
+                    <th>Total Points</th>
+                    <th>Goals</th>
+                    <th>Assists</th>
+                    <th>Yellow Cards</th>
+                    <th>Red Cards</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((person, index) => (
+                    <tr key={person.registrationId}>
+                      <td>
+                        <span className={`rank-number ${index < 3 ? "rank-highlight" : ""}`}>
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                      </td>
+                      <td className="leaderboard-player">{person.name}</td>
+                      <td>{person.club}</td>
+                      <td>{person.matchPerformancePoints}</td>
+                      <td>{person.votingPoints}</td>
+                      <td className="leaderboard-points"><strong>{person.totalPoints}</strong></td>
+                      <td className="leaderboard-goals">{person.goals}</td>
+                      <td>{person.assists}</td>
+                      <td><span className="yellow-card-count">{person.yellowCards}</span></td>
+                      <td><span className="red-card-count">{person.redCards}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>
+            ) : (
+              <>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>{role === "coach" ? "Coach" : "Referee"}</th>
+                    <th>Club</th>
+                    <th>Voting Points</th>
+                    <th>Voting Matches</th>
+                    <th>Total Votes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((person, index) => (
+                    <tr key={person.registrationId}>
+                      <td>
+                        <span className={`rank-number ${index < 3 ? "rank-highlight" : ""}`}>
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                      </td>
+                      <td className="leaderboard-player">{person.name}</td>
+                      <td>{person.club}</td>
+                      <td className="leaderboard-points"><strong>{person.votingPoints}</strong></td>
+                      <td>{person.votingMatches}</td>
+                      <td>{person.totalVotes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>
+            )}
+          </table>
+        </div>
+      ) : (
+        <p className="empty-state">
+          No finalised {role} voting results are available for this selection yet.
+        </p>
+      )}
+    </div>
+  );
 
   return (
     <section className="section" id="statistics">
       <div className="section-inner">
         <SectionTitle
-          eyebrow="PLAYER PERFORMANCE"
-          title="TOP 10 PLAYERS"
-          description="Discover the leading players across our football clubs using available roster and match-event records."
+          eyebrow="OFFICIAL LEAGUE RANKINGS"
+          title="TOP 10 LEADERBOARDS"
+          description="Rankings combine recorded match performance with finalised voting results. Coach and referee rankings use finalised voting points."
         />
 
         <div className="leaderboard-toolbar">
           <label htmlFor="leaderboardClub">Filter by club</label>
-
           <select
             id="leaderboardClub"
             value={selectedClub}
             onChange={(event) => setSelectedClub(event.target.value)}
           >
             <option value="All Clubs">All Clubs</option>
-
             {publicClubs.map((club) => (
-              <option key={club.id || club.name} value={club.name}>
+              <option key={club.id || club.name} value={String(club.id || club.name)}>
                 {club.name}
               </option>
             ))}
@@ -1670,89 +1655,270 @@ function TopPlayers({ publicClubs = CLUBS }) {
         </div>
 
         {loading ? (
-          <p className="empty-state">
-            Loading player performance…
-          </p>
-        ) : loadError ? (
-          <p className="empty-state" role="alert">
-            {loadError}
-          </p>
-        ) : filteredPlayers.length > 0 ? (
-          <div className="table-wrap">
-            <table className="standings-table leaderboard-table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Player</th>
-                  <th>Club</th>
-                  <th>Goals</th>
-                  <th>Assists</th>
-                  <th>Yellow Cards</th>
-                  <th>Red Cards</th>
-                  <th>Total Points</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredPlayers.map((player, index) => (
-                  <tr key={`${player.id}-${player.club}`}>
-                    <td>
-                      <span
-                        className={`rank-number ${index < 3 ? "rank-highlight" : ""
-                          }`}
-                      >
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                    </td>
-
-                    <td className="leaderboard-player">
-                      {player.name}
-                    </td>
-
-                    <td>{player.club}</td>
-
-                    <td className="leaderboard-goals">
-                      {player.goals}
-                    </td>
-
-                    <td>{player.assists}</td>
-
-                    <td>
-                      <span className="yellow-card-count">
-                        {player.yellowCards}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span className="red-card-count">
-                        {player.redCards}
-                      </span>
-                    </td>
-                    <td className="leaderboard-points">
-                      <strong>{player.totalPoints}</strong>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="empty-state">Loading official leaderboards…</p>
         ) : (
-          <p className="empty-state">
-            No approved player records are available for this selection yet.
-            Approve player profiles and record match events to populate
-            the leaderboard.
-          </p>
+          <>
+            {renderParticipantLeaderboard("TOP 10 PLAYERS", topPlayers, "player", loadErrors.players)}
+            {renderParticipantLeaderboard("TOP 10 COACHES", topCoaches, "coach", loadErrors.coaches)}
+            {renderParticipantLeaderboard("TOP 10 REFEREES", topReferees, "referee", loadErrors.referees)}
+          </>
         )}
 
         <p className="data-note">
-          Statistics are calculated from available match-event records.
-          Only recorded events are counted; missing statistics are shown as zero.
+          Player totals include match-performance points and finalised voting points. Coach and referee totals include finalised voting points only. Unfinalised votes are not displayed. Goalkeepers remain part of their teams and player records; there is no separate public goalkeeper leaderboard.
         </p>
       </div>
     </section>
   );
 }
 
+function PublicVotingPage({ qrToken }) {
+  const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
+  const [sessionToken, setSessionToken] = useState("");
+  const [candidates, setCandidates] = useState([]);
+  const [ratings, setRatings] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  async function verifyMember(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "verify_match_voting_pin",
+        {
+          p_qr_token: qrToken,
+          p_email: email.trim().toLowerCase(),
+          p_pin: pin.trim(),
+        }
+      );
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.message || "Verification failed.");
+      }
+
+      const token = data.session_token;
+      if (!token) throw new Error("No voting session was returned.");
+
+      const { data: candidateData, error: candidateError } =
+        await supabase.rpc("get_match_voting_candidates", {
+          p_session_token: token,
+        });
+
+      if (candidateError) throw candidateError;
+      if (!candidateData?.success) {
+        throw new Error(
+          candidateData?.message || "Could not load voting candidates."
+        );
+      }
+
+      setSessionToken(token);
+      setCandidates(candidateData.candidates || []);
+      setRatings({});
+    } catch (err) {
+      setMessage(err.message || "Unable to verify your details.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitBallot(event) {
+    event.preventDefault();
+
+    if (candidates.some((candidate) =>
+      ratings[candidate.candidate_id] === undefined
+    )) {
+      setMessage("Please rate every candidate before submitting.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "submit_match_voting_ballot",
+        {
+          p_session_token: sessionToken,
+          p_ratings: candidates.map((candidate) => ({
+            candidate_id: candidate.candidate_id,
+            rating: Number(ratings[candidate.candidate_id]),
+          })),
+        }
+      );
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.message || "Ballot submission failed.");
+      }
+
+      setSubmitted(true);
+      setMessage(data.message || "Your ballot has been submitted.");
+      setSessionToken("");
+    } catch (err) {
+      setMessage(err.message || "Could not submit your ballot.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const pageStyle = {
+    minHeight: "100vh",
+    background: "#101820",
+    color: "#fff",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: "24px",
+  };
+
+  const panelStyle = {
+    width: "100%",
+    maxWidth: "620px",
+    background: "#1b2732",
+    padding: "28px",
+    borderRadius: "16px",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <main style={pageStyle}>
+      <div style={panelStyle}>
+        <p style={{ color: "#a6c86b", letterSpacing: "2px" }}>
+          BHORA MUTAMBO
+        </p>
+
+        <h1>Match Voting</h1>
+
+        {message && (
+          <p role="status" style={{ padding: "12px", background: "#263746", borderRadius: "8px" }}>
+            {message}
+          </p>
+        )}
+
+        {submitted ? (
+          <div>
+            <h2>Thank you for voting!</h2>
+            <p>Your ballot has been recorded successfully.</p>
+          </div>
+        ) : !sessionToken ? (
+          <form onSubmit={verifyMember}>
+            <p>Enter your registered email and four-digit voting PIN.</p>
+
+            <label htmlFor="voting-email">Email address</label>
+            <input
+              id="voting-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={votingInputStyle}
+            />
+
+            <label htmlFor="voting-pin">Voting PIN</label>
+            <input
+              id="voting-pin"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              pattern="[0-9]{4}"
+              autoComplete="off"
+              required
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              style={votingInputStyle}
+            />
+
+            <button type="submit" disabled={loading} style={votingButtonStyle}>
+              {loading ? "Verifying..." : "Verify and continue"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitBallot}>
+            <p>Rate every eligible participant from 0 to 10.</p>
+
+            {candidates.map((candidate) => (
+              <div
+                key={candidate.candidate_id}
+                style={{
+                  padding: "16px 0",
+                  borderBottom: "1px solid #394956",
+                }}
+              >
+                <strong>{candidate.football_name}</strong>
+                <p style={{ color: "#aab7c2", margin: "5px 0" }}>
+                  {candidate.role}
+                </p>
+
+                <label htmlFor={`rating-${candidate.candidate_id}`}>
+                  Your rating
+                </label>
+
+                <select
+                  id={`rating-${candidate.candidate_id}`}
+                  required
+                  value={ratings[candidate.candidate_id] ?? ""}
+                  onChange={(e) =>
+                    setRatings((current) => ({
+                      ...current,
+                      [candidate.candidate_id]: e.target.value,
+                    }))
+                  }
+                  style={votingInputStyle}
+                >
+                  <option value="">Select rating</option>
+                  {Array.from({ length: 11 }, (_, i) => (
+                    <option key={i} value={i}>
+                      {i} / 10
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+
+            <button
+              type="submit"
+              disabled={loading || candidates.length === 0}
+              style={votingButtonStyle}
+            >
+              {loading ? "Submitting..." : "Submit my ballot"}
+            </button>
+          </form>
+        )}
+      </div>
+    </main>
+  );
+}
+
+const votingInputStyle = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "13px",
+  margin: "8px 0 18px",
+  borderRadius: "8px",
+  border: "1px solid #526474",
+  background: "#101820",
+  color: "#fff",
+};
+
+const votingButtonStyle = {
+  width: "100%",
+  padding: "14px",
+  marginTop: "16px",
+  border: "none",
+  borderRadius: "8px",
+  background: "#a6c86b",
+  color: "#101820",
+  fontWeight: "700",
+  cursor: "pointer",
+};
 
 export default function App() {
   const [selectedClub, setSelectedClub] = useState("All Clubs");
@@ -1847,7 +2013,7 @@ export default function App() {
       active = false;
       clearInterval(refreshTimer);
     };
-  }, [publicClubs]);
+  }, []);
 
   useEffect(() => {
     if (!supabase || !supabaseConfigured) return undefined;
@@ -1978,7 +2144,22 @@ export default function App() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   }
 
-  if (adminUser) return <AdminDashboard user={adminUser} onSignOut={handleAdminSignOut} />;
+
+  const votingQrToken = new URLSearchParams(window.location.search).get("vote");
+
+  if (votingQrToken) {
+    return <PublicVotingPage qrToken={votingQrToken} />;
+  }
+
+  if (adminUser) {
+    return (
+      <AdminDashboard
+        user={adminUser}
+        onSignOut={handleAdminSignOut}
+      />
+    );
+  }
+
 
   return (
     <div className="app">
@@ -2179,49 +2360,53 @@ export default function App() {
 
         <TopPlayers publicClubs={publicClubs} />
 
-        <section className="section" id="register">
+        <section className="section registration-section" id="register">
           <div className="section-inner">
             <SectionTitle
-              eyebrow="JOIN THE COMMUNITY"
-              title="REGISTER WITH US"
-              description="Become part of the Manav Rachna football community. Register as a player, coach or referee."
+              eyebrow="BECOME PART OF THE TEAM"
+              title="PLAYER & OFFICIAL REGISTRATION"
+              description="Submit your details for review by your preferred club."
             />
 
-            <RegistrationForm publicClubs={publicClubs} />
-          </div>
-        </section>
-
-        <section className="section" id="about">
-          <div className="section-inner">
-            <SectionTitle
-              eyebrow="ABOUT BHORA MUTAMBO"
-              title="ONE UNIVERSITY. ONE FOOTBALL COMMUNITY."
-              description="A platform built to bring the university's football community together."
-            />
-
-            <div className="about-content">
-              <p>
-                Manav Rachna Football Clubs brings together players, coaches,
-                referees and supporters through a shared passion for football.
-                The platform provides a central place to explore clubs, follow
-                fixtures and results, review league standings and track individual
-                player performances.
-              </p>
-
-              <p>
-                Bhora Mutambo supports the organisation and growth of university
-                football by making important football information more accessible
-                to the community.
-              </p>
-
-              <p>
-                Our community is built on discipline, teamwork, respect and
-                passion for the game.
-              </p>
+            <div className="registration-layout">
+              <div className="registration-copy">
+                <h3>Your next chapter starts here.</h3>
+                <p>
+                  Whether you are registering as a player, coach or referee,
+                  provide accurate details so the club can identify and contact
+                  you.
+                </p>
+                <ul>
+                  <li>Profile picture is compulsory.</li>
+                  <li>Provide your full legal name and football name.</li>
+                  <li>Players must choose a jersey number from 1–99.</li>
+                  <li>Phone numbers must contain exactly 10 digits.</li>
+                </ul>
+              </div>
+              <RegistrationForm publicClubs={publicClubs} />
             </div>
           </div>
         </section>
 
+        <section className="section" id="about">
+          <div className="section-inner about-grid">
+            <div>
+              <p className="eyebrow">ABOUT THE PROJECT</p>
+              <h2>MORE THAN A GAME.</h2>
+            </div>
+            <div>
+              <p>
+                Manav Rachna Football Clubs-v2 brings club information, player
+                performance, match records and registration into one
+                football-focused platform.
+              </p>
+              <p>
+                Official registrations, administration, player statistics and
+                discipline records require a connected and secure database.
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
 
       <footer className="site-footer">
@@ -2244,7 +2429,7 @@ export default function App() {
           © {new Date().getFullYear()} Manav Rachna Football Clubs-v2
         </p>
       </footer>
-
     </div>
   );
 }
+

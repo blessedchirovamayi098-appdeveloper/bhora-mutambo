@@ -1,7 +1,7 @@
 import "./AdminDashboard.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
-
+import { QRCodeSVG } from "qrcode.react";
 const SECTIONS = [
   { key: "overview", label: "Overview", description: "League activity and system statistics." },
   { key: "registrations", label: "Registration applications", description: "Review, approve or reject applications." },
@@ -13,6 +13,11 @@ const SECTIONS = [
   { key: "matches", label: "Matches", description: "Create fixtures and update results." },
   { key: "match_lineups", label: "Lineups & player stats", description: "Manage match lineups and publication." },
   { key: "match_events", label: "Match events", description: "Record goals, cards and incidents." },
+  {
+    key: "voting",
+    label: "Voting Management",
+    description: "Select match participants and manage voting sessions.",
+  },
   { key: "standings", label: "League standings", description: "Calculate standings from completed results." },
   { key: "reports", label: "Reports & exports", description: "Download league records as CSV." },
   { key: "suspensions", label: "Discipline", description: "Manage player suspensions." },
@@ -364,6 +369,8 @@ export default function AdminDashboard({ user, onSignOut }) {
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
   const [clubs, setClubs] = useState([]);
+
+
   const [overview, setOverview] = useState({
     clubs: [],
     roster: [],
@@ -384,6 +391,17 @@ export default function AdminDashboard({ user, onSignOut }) {
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
   const [logoFile, setLogoFile] = useState(null);
+  const [votingMatchId, setVotingMatchId] = useState("");
+  const [votingData, setVotingData] = useState(null);
+  const [votingLoading, setVotingLoading] = useState(false);
+  const [votingSaving, setVotingSaving] = useState(false);
+  const [votingQrToken, setVotingQrToken] = useState("");
+  const [votingQrUrl, setVotingQrUrl] = useState("");
+  const [votingQrGenerating, setVotingQrGenerating] = useState(false);
+  const [votingQrRevoking, setVotingQrRevoking] = useState(false);
+
+  const [votingScheduledOpenAt, setVotingScheduledOpenAt] = useState("");
+  const [votingScheduledCloseAt, setVotingScheduledCloseAt] = useState("");
 
   const loadOverview = useCallback(async () => {
     if (!supabase) return;
@@ -421,7 +439,7 @@ export default function AdminDashboard({ user, onSignOut }) {
     setLoading(true);
     setError("");
 
-    if (["overview", "standings", "reports"].includes(section)) {
+    if (["overview", "standings", "reports", "voting"].includes(section)) {
       try {
         await loadOverview();
         setRows([]);
@@ -451,16 +469,25 @@ export default function AdminDashboard({ user, onSignOut }) {
 
     const list = data ?? [];
 
+
     const filteredList =
-      section === "coaches"
+      section === "approved_roster"
         ? list.filter(
-          (row) => String(row.role || "").toLowerCase() === "coach"
+          (row) =>
+            String(row.role || "").trim().toLowerCase() === "player"
         )
-        : section === "referees"
+        : section === "coaches"
           ? list.filter(
-            (row) => String(row.role || "").toLowerCase() === "referee"
+            (row) =>
+              String(row.role || "").trim().toLowerCase() === "coach"
           )
-          : list;
+          : section === "referees"
+            ? list.filter(
+              (row) =>
+                String(row.role || "").trim().toLowerCase() === "referee"
+            )
+            : list;
+
 
     setRows(filteredList);
     setColumns(
@@ -520,8 +547,245 @@ export default function AdminDashboard({ user, onSignOut }) {
       );
     }
   }
+  function toLocalDateTimeInput(value) {
+    if (!value) return "";
 
+    const date = new Date(value);
+    const offset = date.getTimezoneOffset() * 60000;
 
+    return new Date(date.getTime() - offset)
+      .toISOString()
+      .slice(0, 16);
+  }
+
+  function buildVotingQrUrl(token) {
+    const url = new URL(window.location.href);
+
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("vote", token);
+
+    return url.toString();
+  }
+
+  async function generateVotingQr() {
+    if (!supabase || !votingMatchId) return;
+
+    if (!votingScheduledOpenAt || !votingScheduledCloseAt) {
+      setError("Choose both voting opening and closing times.");
+      return;
+    }
+
+    if (
+      new Date(votingScheduledCloseAt) <=
+      new Date(votingScheduledOpenAt)
+    ) {
+      setError("Closing time must be later than opening time.");
+      return;
+    }
+
+    if (!votingData?.candidates?.some((candidate) => candidate.selected)) {
+      setError("Save at least one voting participant first.");
+      return;
+    }
+
+    setVotingQrGenerating(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "admin_generate_match_voting_qr",
+        {
+          p_match_id: votingMatchId,
+          p_scheduled_open_at: new Date(votingScheduledOpenAt).toISOString(),
+          p_scheduled_close_at: new Date(votingScheduledCloseAt).toISOString(),
+        }
+      );
+
+      if (error) throw error;
+
+      if (!data?.success || !data?.qr_token) {
+        throw new Error(data?.message || "QR generation failed.");
+      }
+
+      await loadVoting(votingMatchId);
+
+      setVotingQrToken(data.qr_token);
+      setVotingQrUrl(buildVotingQrUrl(data.qr_token));
+
+      setNotice("Voting QR generated successfully.");
+    } catch (err) {
+      setError(err.message || "Could not generate voting QR.");
+    } finally {
+      setVotingQrGenerating(false);
+    }
+  }
+
+  async function revokeVotingQr() {
+    if (!supabase || !votingMatchId) return;
+
+    if (!window.confirm("Are you sure you want to revoke this voting QR?")) {
+      return;
+    }
+
+    setVotingQrRevoking(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "admin_revoke_match_voting_qr",
+        { p_match_id: votingMatchId }
+      );
+
+      if (error) throw error;
+
+      setVotingQrToken("");
+      setVotingQrUrl("");
+
+      setNotice(data?.message || "Voting QR revoked successfully.");
+      await loadVoting(votingMatchId);
+    } catch (err) {
+      setError(err.message || "Could not revoke voting QR.");
+    } finally {
+      setVotingQrRevoking(false);
+    }
+  }
+
+  async function loadVoting(matchId) {
+    if (!supabase || !matchId) {
+      setVotingData(null);
+      return;
+    }
+
+    setVotingLoading(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const { data, error: votingError } = await supabase.rpc(
+        "admin_get_match_voting",
+        { p_match_id: matchId }
+      );
+
+      if (votingError) throw votingError;
+
+      setVotingData(data);
+      setVotingScheduledOpenAt(
+        toLocalDateTimeInput(data?.session?.scheduled_open_at)
+      );
+
+      setVotingScheduledCloseAt(
+        toLocalDateTimeInput(data?.session?.scheduled_close_at)
+      );
+
+      setVotingQrToken("");
+      setVotingQrUrl("");
+    } catch (loadError) {
+      setVotingData(null);
+      setError(loadError?.message || "Could not load voting information.");
+    } finally {
+      setVotingLoading(false);
+    }
+  }
+  function selectVotingMatch(matchId) {
+    setVotingMatchId(matchId);
+    setVotingData(null);
+    setError("");
+    setNotice("");
+
+    if (matchId) {
+      loadVoting(matchId);
+    }
+  }
+
+  function toggleVotingParticipant(registrationId) {
+    setVotingData((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        candidates: current.candidates.map((candidate) =>
+          candidate.registration_id === registrationId
+            ? { ...candidate, selected: !candidate.selected }
+            : candidate
+        ),
+      };
+    });
+  }
+
+  async function saveVotingParticipants() {
+    if (!supabase || !votingMatchId || !votingData) return;
+
+    if (status !== "draft") {
+      setError("Participants can only be changed while voting is in Draft.");
+      return;
+    }
+
+    const selectedIds = votingData.candidates
+      .filter((candidate) => candidate.selected)
+      .map((candidate) => candidate.registration_id);
+
+    setVotingSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const { error: saveError } = await supabase.rpc(
+        "admin_save_match_voting_participants",
+        {
+          p_match_id: votingMatchId,
+          p_registration_ids: selectedIds,
+        }
+      );
+
+      if (saveError) throw saveError;
+
+      await loadVoting(votingMatchId);
+      setNotice("Voting participant list saved successfully.");
+    } catch (saveError) {
+      setError(
+        saveError?.message || "Could not save the voting participant list."
+      );
+    } finally {
+      setVotingSaving(false);
+    }
+  }
+
+  async function changeVotingStatus(newStatus) {
+    if (!supabase || !votingMatchId) return;
+
+    setVotingSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const { data, error: statusError } = await supabase.rpc(
+        "admin_set_match_voting_status",
+        {
+          p_match_id: votingMatchId,
+          p_new_status: newStatus,
+        }
+      );
+
+      if (statusError) throw statusError;
+
+      await loadVoting(votingMatchId);
+
+      setNotice(
+        data === "open"
+          ? "Voting is now open for this match."
+          : "Voting has been closed for this match."
+      );
+    } catch (statusError) {
+      setError(
+        statusError?.message || "Could not update the voting status."
+      );
+    } finally {
+      setVotingSaving(false);
+    }
+  }
 
   useEffect(() => {
     loadRows();
@@ -1642,7 +1906,10 @@ export default function AdminDashboard({ user, onSignOut }) {
           }
         }
       }
+
+
       let payload = {};
+
 
       if (section === "approved_player_profiles") {
         const registration = overview.registrations.find(
@@ -1826,25 +2093,17 @@ export default function AdminDashboard({ user, onSignOut }) {
           draft.referee_1_roster_id,
           draft.referee_2_roster_id,
           draft.referee_3_roster_id,
-        ];
+        ].filter(Boolean);
 
-        if (refereeIds.some((id) => !id)) {
-          setError("Select all three referees before saving the fixture.");
+        // Referees are optional, but selected referees must be different.
+        if (new Set(refereeIds).size !== refereeIds.length) {
+          setError("Each assigned referee must be a different person.");
           return;
         }
 
-        if (new Set(refereeIds).size !== 3) {
-          setError("Each referee must be a different person.");
-          return;
-        }
+        // Coach and referee assignments are optional.
+        // A match can be saved without either assignment.
 
-        if (
-          !draft.home_coach_roster_id ||
-          !draft.away_coach_roster_id
-        ) {
-          setError("Both clubs must have an approved coach assigned.");
-          return;
-        }
 
         payload.notes = String(draft.notes ?? "").trim();
 
@@ -2124,6 +2383,10 @@ export default function AdminDashboard({ user, onSignOut }) {
     setError("");
     setNotice("");
     setLogoFile(null);
+
+    if (nextSection === "voting" && votingMatchId) {
+      loadVoting(votingMatchId);
+    }
   }
 
   const canAdd = [
@@ -2397,8 +2660,360 @@ export default function AdminDashboard({ user, onSignOut }) {
             ))}
           </div>
         )}
+        {section === "voting" && (
+          <div className="admin-table-card voting-management">
+            <div className="admin-table-toolbar">
+              <strong>Match voting management</strong>
 
-        {!["overview", "standings", "reports"].includes(section) && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!votingMatchId || votingLoading || votingSaving}
+                onClick={() => loadVoting(votingMatchId)}
+              >
+                Refresh voting
+              </button>
+            </div>
+
+            <div className="voting-match-selector">
+              <label htmlFor="voting-match-select">
+                Select match
+              </label>
+
+              <select
+                id="voting-match-select"
+                value={votingMatchId}
+                onChange={(event) => selectVotingMatch(event.target.value)}
+              >
+                <option value="">Choose a match...</option>
+
+                {[...overview.matches]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.kickoff_at || 0) -
+                      new Date(a.kickoff_at || 0)
+                  )
+                  .map((match) => {
+                    const home = clubs.find(
+                      (club) => club.id === match.home_club_id
+                    );
+                    const away = clubs.find(
+                      (club) => club.id === match.away_club_id
+                    );
+
+                    return (
+                      <option key={match.id} value={match.id}>
+                        {home?.name || "Home"} vs {away?.name || "Away"}
+                        {" · "}
+                        {match.kickoff_at
+                          ? new Date(match.kickoff_at).toLocaleString()
+                          : "Date not set"}
+                      </option>
+                    );
+                  })}
+              </select>
+            </div>
+
+            {!votingMatchId ? (
+              <p className="admin-empty">
+                Select a match to manage its voting participants.
+              </p>
+            ) : votingLoading ? (
+              <p className="admin-empty">Loading voting information...</p>
+            ) : !votingData ? (
+              <p className="admin-empty">
+                No voting information is available for this match.
+              </p>
+            ) : (
+              <>
+                <div className="voting-session-summary">
+                  <div>
+                    <span>Voting status</span>
+                    <strong className={`voting-status ${votingData.session?.status || "draft"}`}>
+                      {labelize(votingData.session?.status || "draft")}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Eligible candidates</span>
+                    <strong>{votingData.candidates?.length || 0}</strong>
+                  </div>
+
+                  <div>
+                    <span>Selected participants</span>
+                    <strong>
+                      {votingData.candidates?.filter(
+                        (candidate) => candidate.selected
+                      ).length || 0}
+                    </strong>
+                  </div>
+                </div>
+
+                {["player", "coach", "referee"].map((role) => {
+                  const roleCandidates = (votingData.candidates || []).filter(
+                    (candidate) => candidate.participant_role === role
+                  );
+
+                  return (
+                    <section className="voting-participant-group" key={role}>
+                      <div className="voting-group-heading">
+                        <h3>
+                          {role === "player"
+                            ? "Players"
+                            : role === "coach"
+                              ? "Coaches"
+                              : "Referees"}
+                        </h3>
+
+                        <span>{roleCandidates.length} eligible</span>
+                      </div>
+                      {roleCandidates.length === 0 ? (
+                        <p className="admin-empty">
+                          No approved {role} candidates are available for this match.
+                        </p>
+                      ) : (
+                        <div className="voting-candidate-list">
+                          {roleCandidates.map((candidate) => (
+                            <label
+                              className={`voting-candidate-row ${candidate.selected ? "selected" : ""
+                                }`}
+                              key={candidate.registration_id}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={candidate.selected === true}
+                                disabled={
+                                  votingSaving ||
+                                  (votingData.session?.status || "draft") !== "draft"
+                                }
+                                onChange={() =>
+                                  toggleVotingParticipant(
+                                    candidate.registration_id
+                                  )
+                                }
+                              />
+
+                              <span className="voting-candidate-details">
+                                <strong>{candidate.display_name}</strong>
+                                <small>
+                                  {candidate.club_name || "No club assigned"}
+                                </small>
+                              </span>
+
+                              <span className="voting-role-label">
+                                {labelize(candidate.participant_role)}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+
+                <div className="voting-qr-panel">
+                  <h3>Voting QR Code</h3>
+
+                  <p>
+                    Set the voting period, generate the QR code, and share it
+                    with registered members through your WhatsApp group.
+                  </p>
+
+                  <div className="voting-schedule-fields">
+                    <label>
+                      Voting opening time
+                      <input
+                        type="datetime-local"
+                        value={votingScheduledOpenAt}
+                        onChange={(e) => setVotingScheduledOpenAt(e.target.value)}
+                        disabled={
+                          !["draft", "open"].includes(votingData.session?.status || "draft")
+                        }
+                      />
+                    </label>
+
+                    <label>
+                      Voting closing time
+                      <input
+                        type="datetime-local"
+                        value={votingScheduledCloseAt}
+                        onChange={(e) => setVotingScheduledCloseAt(e.target.value)}
+                        disabled={
+                          !["draft", "open"].includes(votingData.session?.status || "draft")
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <div className="voting-qr-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={generateVotingQr}
+                      disabled={
+                        votingQrGenerating ||
+                        votingSaving ||
+                        !["draft", "open"].includes(votingData.session?.status || "draft") ||
+                        !votingData.candidates?.some((candidate) => candidate.selected)
+                      }
+                    >
+                      {votingQrGenerating ? "Generating..." : "Generate / Replace QR"}
+                    </button>
+
+                    {votingQrToken && (
+                      <button
+                        type="button"
+                        className="danger-link"
+                        onClick={revokeVotingQr}
+                        disabled={votingQrRevoking}
+                      >
+                        {votingQrRevoking ? "Revoking..." : "Revoke QR"}
+                      </button>
+                    )}
+                  </div>
+
+
+                  {votingQrUrl ? (
+                    <div className="voting-qr-display">
+                      <QRCodeSVG
+                        value={votingQrUrl}
+                        size={256}
+                        level="H"
+                        includeMargin
+                      />
+
+                      <h3>Scan to vote</h3>
+
+                      <p>
+                        Share this QR code with eligible members using WhatsApp.
+                      </p>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(votingQrUrl);
+                            setNotice("Voting link copied successfully.");
+                          } catch (error) {
+                            setError("Could not copy the link. Please copy it manually.");
+                          }
+                        }}
+                      >
+                        Copy voting link
+                      </button>
+
+                      <p className="voting-help-text">
+                        Keep this QR code private to your intended voting group.
+                        Generating a replacement invalidates the previous QR code.
+                        The QR link is temporarily held in this admin session.
+                        If you refresh the page, generate a replacement to obtain a new QR.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="voting-qr-empty">
+                      <p>No QR code has been generated for this match yet.</p>
+                      <p>
+                        Set the opening and closing times, then select
+                        <strong> Generate / Replace QR </strong>
+                        to create one.
+                      </p>
+                    </div>
+                  )}
+
+
+                  {!votingQrUrl && votingData.session?.qr_generated_at && (
+                    <p className="voting-help-text">
+                      A QR code has previously been generated. Its original link
+                      cannot be retrieved. Generate a replacement to display a new one.
+                    </p>
+                  )}
+                </div>
+
+
+                <div className="voting-management-actions">
+                  {votingData.session?.status === "draft" && (
+                    <>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={saveVotingParticipants}
+                        disabled={votingSaving || votingLoading}
+                      >
+                        {votingSaving ? "Saving..." : "Save participant list"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="voting-open-button"
+                        disabled={
+                          votingSaving ||
+                          votingLoading ||
+                          !votingData.candidates?.some(
+                            (candidate) => candidate.selected
+                          )
+                        }
+                        onClick={() => changeVotingStatus("open")}
+                      >
+                        Open voting
+                      </button>
+                    </>
+                  )}
+
+                  {votingData.session?.status === "open" && (
+                    <button
+                      type="button"
+                      className="voting-close-button"
+                      disabled={votingSaving || votingLoading}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Close voting for this match? Voters will no longer be able to submit or edit their ballots."
+                          )
+                        ) {
+                          changeVotingStatus("closed");
+                        }
+                      }}
+                    >
+                      Close voting
+                    </button>
+                  )}
+
+                  {votingData.session?.status === "closed" && (
+                    <p className="voting-help-text">
+                      Voting is permanently closed. This session cannot be reopened or edited.
+                    </p>
+                  )}
+                  {votingData.session?.status === "finalised" && (
+                    <p className="voting-help-text">
+                      Voting has been finalised. This session is permanently locked.
+                    </p>
+                  )}
+                </div>
+
+
+                {votingData.session?.status === "open" && (
+                  <p className="voting-help-text">
+                    Voting is open. Close voting before changing the selected participants.
+                  </p>
+                )}
+
+                {votingData.session?.status === "closed" && (
+                  <p className="voting-help-text">
+                    Voting is closed. You can edit the participant list or reopen voting.
+                  </p>
+                )}
+
+                {votingData.session?.status === "draft" && (
+                  <p className="voting-help-text">
+                    Save at least one participant before opening voting.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {!["overview", "standings", "reports", "voting"].includes(section) && (
           <div className="admin-table-card">
             <div className="admin-table-toolbar">
               <input
@@ -2556,7 +3171,7 @@ export default function AdminDashboard({ user, onSignOut }) {
                                 </div>
                               </div>
                             )}
-                            {row.clock_phase === "completed" && (
+                            {section === "matches" && row.clock_phase === "completed" && (
                               <span>Match completed</span>
                             )}
 

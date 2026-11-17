@@ -3337,3 +3337,542 @@ textarea:focus-visible {
     max-width: 220px;
   }
 }
+
+/* =========================================================
+   BHORA MUTAMBO — FINAL DESIGN CONSISTENCY UPDATE
+   Preserve navy, white and neon-green colour scheme
+========================================================= */
+
+:root {
+  --bg-main: #050d19;
+  --bg-card: #101b2d;
+  --bg-card-hover: #17263b;
+  --green: #39ff14;
+  --green-dark: #159447;
+  --white: #ffffff;
+  --red: #ff303b;
+  --muted: #a6b2c4;
+  --border: rgba(148, 163, 184, 0.2);
+}
+
+/* General layout protection */
+
+.app,
+.admin-shell,
+.admin-layout,
+.admin-main,
+.admin-content {
+  min-width: 0;
+}
+
+.container,
+.section-inner {
+  max-width: 1200px;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+img {
+  height: auto;
+}
+
+/* Consistent cards */
+
+.club-card,
+.club-item,
+.team-card,
+.match-panel,
+.match-list-panel,
+.leaderboard-panel,
+.registration-form,
+.form-card,
+.about-card,
+.admin-card,
+.admin-panel,
+.admin-modal,
+.admin-login-card {
+  color: var(--white);
+}
+
+.club-card,
+.club-item,
+.team-card,
+.match-panel,
+.match-list-panel,
+.leaderboard-panel,
+.registration-form,
+.form-card,
+.about-card,
+.admin-card,
+.admin-panel {
+  border-color: var(--border);
+}
+
+/* Public leaderboard improvements */
+
+.leaderboard-toolbar {
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.leaderboard-toolbar label {
+  color: var(--white);
+  font-weight: 700;
+}
+
+.leaderboard-toolbar select {
+  min-height: 44px;
+  background-color: #091321;
+  color: var(--white);
+  border: 1px solid #304057;
+  border-radius: 8px;
+}
+
+.leaderboard-table {
+  min-width: 600px;
+}
+
+.leaderboard-table th {
+  background: #142238;
+  color: var(--green);
+}
+
+.leaderboard-table td {
+  color: #e2e8f0;
+}
+
+.leaderboard-table tbody tr:hover {
+  background: rgba(57, 255, 20, 0.05);
+}
+
+.leaderboard-points,
+.leaderboard-goals,
+.leader-total,
+.rank-highlight {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.rank-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.club-filters button {
+  min-height: 40px;
+  transition: background 0.2s ease, border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.club-filters button.filter-active {
+  background: rgba(57, 255, 20, 0.08);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* Form consistency */
+
+.registration-form input,
+.registration-form select,
+.registration-form textarea,
+.admin-form-grid input,
+.admin-form-grid select,
+.admin-form-grid textarea,
+.admin-login-card input,
+.admin-table-toolbar input {
+  background-color: #091321;
+  color: var(--white);
+  border: 1px solid #304057;
+  border-radius: 8px;
+}
+
+.registration-form input:focus,
+.registration-form select:focus,
+.registration-form textarea:focus,
+.admin-form-grid input:focus,
+.admin-form-grid select:focus,
+.admin-form-grid textarea:focus {
+  border-color: var(--green);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 255, 20, 0.09);
+}
+
+input[type="file"] {
+  max-width: 100%;
+  color: var(--muted);
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  background: rgba(57, 255, 20, 0.08);
+  color: var(--green);
+  cursor: pointer;
+}
+
+/* Admin dashboard consistency */
+
+.admin-shell {
+  background: #070d18;
+  color: #f5f7fb;
+}
+
+.admin-sidebar {
+  background: #091321;
+  border-color: #233044;
+}
+
+.admin-main {
+  background: #070d18;
+  color: #f5f7fb;
+}
+
+.admin-table-card,
+.admin-card,
+.admin-panel {
+  background: #0b1524;
+  border-color: #26354a;
+}
+
+.admin-data-table {
+  background: #0b1524;
+}
+
+.admin-data-table th {
+  background: #0e1b2c;
+  color: #a6b2c4;
+}
+
+.admin-data-table td {
+  color: #d5dce7;
+}
+
+.admin-form-grid label,
+.admin-field label,
+.admin-field>span {
+  color: #dce5ef;
+}
+
+.admin-form-grid input,
+.admin-form-grid select,
+.admin-form-grid textarea {
+  min-height: 42px;
+}
+
+.admin-modal {
+  background: #0c1727;
+  color: var(--white);
+  border-color: #304057;
+}
+
+.admin-modal input,
+.admin-modal select,
+.admin-modal textarea {
+  background: #091321;
+  color: var(--white);
+  border-color: #304057;
+}
+
+/* Buttons */
+
+.primary-button,
+.nav-button,
+.admin-button.primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #06100b;
+}
+
+.primary-button:hover,
+.nav-button:hover,
+.admin-button.primary:hover {
+  background: transparent;
+  color: var(--green);
+}
+
+.secondary-button,
+.admin-button.secondary {
+  background: transparent;
+  border-color: #304057;
+  color: var(--white);
+}
+
+.secondary-button:hover,
+.admin-button.secondary:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* Match centre and lineup protection */
+
+.match-scoreline,
+.fixture-scoreline {
+  min-width: 0;
+}
+
+.match-scoreline strong,
+.fixture-team h3 {
+  overflow-wrap: anywhere;
+}
+
+.lineups-grid,
+.match-centre-grid {
+  min-width: 0;
+}
+
+.football-pitch {
+  width: 100%;
+}
+
+.pitch-player {
+  overflow-wrap: anywhere;
+}
+
+.match-timeline,
+.timeline-content {
+  min-width: 0;
+}
+
+.timeline-content p {
+  overflow-wrap: anywhere;
+}
+
+/* Tables */
+
+.table-wrap,
+.standings-table-wrap,
+.admin-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  vertical-align: middle;
+}
+
+/* Status indicators */
+
+.status-live,
+.match-status-live {
+  color: #ff4545;
+  border-color: #ff4545;
+  background: rgba(255, 69, 69, 0.12);
+}
+
+.status-completed {
+  color: var(--green);
+}
+
+.admin-status.approved {
+  color: var(--green);
+}
+
+.admin-status.pending {
+  color: #ffd84d;
+}
+
+.admin-status.rejected {
+  color: var(--red);
+}
+
+/* Focus and accessibility */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+
+/* Tablet */
+
+@media (max-width: 850px) {
+
+  .admin-shell,
+  .admin-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .registration-layout,
+  .form-layout,
+  .about-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .match-centre-grid,
+  .matches-grid,
+  .match-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-main {
+    padding: 18px;
+  }
+
+  .admin-stat-row,
+  .admin-stat-row-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobile */
+
+@media (max-width: 600px) {
+
+  .container,
+  .section-inner {
+    width: calc(100% - 28px);
+  }
+
+  .section-heading,
+  .leaderboard-heading,
+  .admin-page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .leaderboard-toolbar {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .leaderboard-toolbar select {
+    width: 100%;
+  }
+
+  .leaderboard-table {
+    min-width: 600px;
+  }
+
+  .form-grid,
+  .registration-grid,
+  .admin-form-grid,
+  .admin-form-grid.two,
+  .admin-form-grid.four {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-stat-row,
+  .admin-stat-row-wide,
+  .admin-stat-grid,
+  .admin-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-topbar,
+  .admin-table-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-toolbar-actions {
+    width: 100%;
+  }
+
+  .admin-toolbar-actions button {
+    flex: 1;
+  }
+
+  .admin-modal {
+    max-height: 94vh;
+    padding: 17px;
+  }
+
+  .admin-modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-modal-actions button {
+    width: 100%;
+  }
+
+  .profile-upload {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .football-pitch {
+    min-height: 250px;
+  }
+
+  .pitch-player-grid {
+    gap: 20px 4px;
+  }
+
+  .match-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeline-event {
+    grid-template-columns: 38px 22px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .site-footer-inner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* Very small phones */
+
+@media (max-width: 380px) {
+
+  .admin-stat-row,
+  .admin-stat-row-wide,
+  .admin-stat-grid,
+  .admin-stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero h1 {
+    font-size: 3rem;
+  }
+
+  .brand-copy strong {
+    font-size: 0.72rem;
+  }
+}
+
+.voting-pin-result {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid #d4af37;
+  border-radius: 12px;
+  background: #fffbea;
+  color: #222;
+  text-align: center;
+}
+
+.voting-pin-number {
+  margin: 18px 0;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  color: #111;
+}
+
+.voting-pin-result button {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  background: #111;
+  color: white;
+  cursor: pointer;
+}
