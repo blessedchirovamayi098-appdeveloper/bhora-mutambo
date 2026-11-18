@@ -1048,3 +1048,92 @@
         transform: none;
     }
 }
+
+/* GOALKEEPER PROFILE CARDS */
+.club-profile-goalkeeper-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .85rem;
+}
+
+.club-profile-goalkeeper-card {
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+    padding: 0 1rem 1rem;
+    border: 1px solid #203149;
+    border-radius: 15px;
+    background: #101b2d;
+}
+
+.club-profile-gk-photo {
+    height: 190px;
+    margin: 0 -1rem .8rem;
+    border-radius: 0;
+}
+
+.club-profile-goalkeeper-card h4 {
+    margin: .55rem 0;
+    color: #fff;
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.club-profile-gk-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    padding: .3rem .55rem;
+    border-radius: 999px;
+    background: #39ff14;
+    color: #050d19;
+    font-weight: 900;
+}
+
+.club-profile-gk-points {
+    display: grid;
+    gap: .15rem;
+    margin: .7rem 0;
+    color: #39ff14;
+    font-size: 1.5rem;
+    font-weight: 900;
+}
+
+.club-profile-gk-points small {
+    color: #a6b2c4;
+    font-size: .7rem;
+    font-weight: 600;
+}
+
+.club-profile-gk-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .55rem;
+    padding-top: .75rem;
+    border-top: 1px solid #24344a;
+}
+
+.club-profile-gk-stats span {
+    display: grid;
+    gap: .2rem;
+    color: #a6b2c4;
+    font-size: .7rem;
+}
+
+.club-profile-gk-stats b {
+    color: #fff;
+    font-size: 1rem;
+}
+
+@media (max-width: 900px) {
+    .club-profile-goalkeeper-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .club-profile-goalkeeper-grid {
+        grid-template-columns: 1fr;
+    }
+}

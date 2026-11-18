@@ -42,6 +42,15 @@ const CLUBS = [
   },
 ];
 
+const OFFICIAL_GOALKEEPER_IDS = new Set([
+  "6188bdf0-3c28-47c3-957d-94c36f9e8b34",
+  "a4840726-309b-4db0-a6f0-c3d16d52ed4e",
+  "95badfb7-3ed7-48f3-ba70-6b02b315e981",
+  "82364d21-22a9-44aa-9b41-e66ee6c2210a",
+  "b53073d4-92db-4be8-b014-eb9239a9bc0e",
+  "19956c3d-5e43-44be-8f2f-784d48d20e9b",
+]);
+
 const NAV_ITEMS = [
   ["Home", "home"],
   ["Clubs", "clubs"],
@@ -1391,11 +1400,13 @@ function TopPlayers({ publicClubs = CLUBS }) {
   const [votingPin, setVotingPin] = useState("");
   const [pinCopied, setPinCopied] = useState(false);
   const [coaches, setCoaches] = useState([]);
+  const [goalkeepers, setGoalkeepers] = useState([]);
   const [referees, setReferees] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [loadErrors, setLoadErrors] = useState({
     players: "",
+    goalkeepers: "",
     coaches: "",
     referees: "",
   });
@@ -1407,10 +1418,12 @@ function TopPlayers({ publicClubs = CLUBS }) {
       if (!supabase || !supabaseConfigured) {
         if (active) {
           setPlayers([]);
+          setGoalkeepers([]);
           setCoaches([]);
           setReferees([]);
           setLoadErrors({
             players: "Connect Supabase to display official player statistics.",
+            goalkeepers: "Connect Supabase to display official goalkeeper rankings.",
             coaches: "Connect Supabase to display official coach rankings.",
             referees: "Connect Supabase to display official referee rankings.",
           });
@@ -1467,11 +1480,18 @@ function TopPlayers({ publicClubs = CLUBS }) {
           totalVotes: Number(row.total_votes) || 0,
         });
 
-        setPlayers(playerResult.rows.map((row) => normalise(row, "player")));
+        const normalisedPlayers = playerResult.rows.map((row) => normalise(row, "player"));
+        setPlayers(normalisedPlayers);
+        setGoalkeepers(
+          normalisedPlayers.filter((person) =>
+            OFFICIAL_GOALKEEPER_IDS.has(String(person.registrationId))
+          )
+        );
         setCoaches(coachResult.rows.map((row) => normalise(row, "coach")));
         setReferees(refereeResult.rows.map((row) => normalise(row, "referee")));
         setLoadErrors({
           players: playerResult.error,
+          goalkeepers: playerResult.error,
           coaches: coachResult.error,
           referees: refereeResult.error,
         });
@@ -1481,6 +1501,7 @@ function TopPlayers({ publicClubs = CLUBS }) {
         if (active) {
           setLoadErrors({
             players: error?.message || "Player leaderboard could not be loaded.",
+            goalkeepers: error?.message || "Goalkeeper leaderboard could not be loaded.",
             coaches: error?.message || "Coach leaderboard could not be loaded.",
             referees: error?.message || "Referee leaderboard could not be loaded.",
           });
@@ -1525,12 +1546,16 @@ function TopPlayers({ publicClubs = CLUBS }) {
       );
     });
 
-    return filtered.slice(0, 10);
+    return filtered.slice(0, role === "coach" || role === "goalkeeper" ? 6 : 10);
   }, [selectedClub]);
 
   const topPlayers = useMemo(
     () => filterAndRank(players, "player"),
     [players, filterAndRank]
+  );
+  const topGoalkeepers = useMemo(
+    () => filterAndRank(goalkeepers, "goalkeeper"),
+    [goalkeepers, filterAndRank]
   );
   const topCoaches = useMemo(
     () => filterAndRank(coaches, "coach"),
@@ -1552,15 +1577,15 @@ function TopPlayers({ publicClubs = CLUBS }) {
       ) : rows.length > 0 ? (
         <div className="table-wrap">
           <table className="standings-table leaderboard-table">
-            {role === "player" ? (
+            {role === "player" || role === "goalkeeper" ? (
               <>
                 <thead>
                   <tr>
                     <th>Rank</th>
-                    <th>Player</th>
+                    <th>{role === "goalkeeper" ? "Goalkeeper" : "Player"}</th>
                     <th>Club</th>
                     <th>Match Points</th>
-                    <th>Voting Points</th>
+                    <th>VR (Voting Rating)</th>
                     <th>Total Points</th>
                     <th>Goals</th>
                     <th>Assists</th>
@@ -1596,7 +1621,7 @@ function TopPlayers({ publicClubs = CLUBS }) {
                     <th>Rank</th>
                     <th>{role === "coach" ? "Coach" : "Referee"}</th>
                     <th>Club</th>
-                    <th>Voting Points</th>
+                    <th>VR (Voting Rating)</th>
                     <th>Voting Matches</th>
                     <th>Total Votes</th>
                   </tr>
@@ -1634,8 +1659,8 @@ function TopPlayers({ publicClubs = CLUBS }) {
       <div className="section-inner">
         <SectionTitle
           eyebrow="OFFICIAL LEAGUE RANKINGS"
-          title="TOP 10 LEADERBOARDS"
-          description="Rankings combine recorded match performance with finalised voting results. Coach and referee rankings use finalised voting points."
+          title="LEAGUE LEADERBOARDS"
+          description="Official rankings for players, goalkeepers, coaches and referees, based on recorded match performance and finalised voting results."
         />
 
         <div className="leaderboard-toolbar">
@@ -1659,13 +1684,14 @@ function TopPlayers({ publicClubs = CLUBS }) {
         ) : (
           <>
             {renderParticipantLeaderboard("TOP 10 PLAYERS", topPlayers, "player", loadErrors.players)}
-            {renderParticipantLeaderboard("TOP 10 COACHES", topCoaches, "coach", loadErrors.coaches)}
+            {renderParticipantLeaderboard("TOP 6 GOALKEEPERS", topGoalkeepers, "goalkeeper", loadErrors.goalkeepers)}
+            {renderParticipantLeaderboard("TOP 6 COACHES", topCoaches, "coach", loadErrors.coaches)}
             {renderParticipantLeaderboard("TOP 10 REFEREES", topReferees, "referee", loadErrors.referees)}
           </>
         )}
 
         <p className="data-note">
-          Player totals include match-performance points and finalised voting points. Coach and referee totals include finalised voting points only. Unfinalised votes are not displayed. Goalkeepers remain part of their teams and player records; there is no separate public goalkeeper leaderboard.
+          Player and goalkeeper rankings use the official player leaderboard records. Goalkeepers are identified using the league's registered goalkeeper IDs. Coach and referee rankings use finalised VR results. Coach and goalkeeper leaderboards show the top six; player and referee leaderboards show the top ten. Unfinalised votes are not displayed.
         </p>
       </div>
     </section>

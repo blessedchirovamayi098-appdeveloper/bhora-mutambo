@@ -2979,11 +2979,32 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </button>
                   )}
 
+
                   {votingData.session?.status === "closed" && (
-                    <p className="voting-help-text">
-                      Voting is permanently closed. This session cannot be reopened or edited.
-                    </p>
+                    <div className="voting-help-text">
+                      <p>
+                        Voting is permanently closed. This session cannot be reopened or edited.
+                      </p>
+
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={votingSaving || votingLoading}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Retry VR finalisation for this closed match? Existing voting submissions will not be changed."
+                            )
+                          ) {
+                            changeVotingStatus("closed");
+                          }
+                        }}
+                      >
+                        {votingSaving ? "Processing..." : "Recover / Finalise VR Results"}
+                      </button>
+                    </div>
                   )}
+
                   {votingData.session?.status === "finalised" && (
                     <p className="voting-help-text">
                       Voting has been finalised. This session is permanently locked.
