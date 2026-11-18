@@ -571,6 +571,31 @@ export default function AdminDashboard({ user, onSignOut }) {
   async function generateVotingQr() {
     if (!supabase || !votingMatchId) return;
 
+    // 1. Confirm that the voting session has been created.
+    if (!votingData?.session?.id) {
+      setError("Save the participant list first to create the voting session.");
+      return;
+    }
+
+    // 2. Get currently selected participants.
+    const selectedIds = (votingData.candidates || [])
+      .filter((candidate) => candidate.selected)
+      .map((candidate) => candidate.registration_id);
+
+    // 3. Get participants already saved in the database.
+    const savedIds = votingData.selected_registration_ids || [];
+
+    // 4. Confirm that selected participants match saved participants.
+    const participantsMatch =
+      selectedIds.length === savedIds.length &&
+      savedIds.every((id) => selectedIds.includes(id));
+
+    if (!participantsMatch || savedIds.length === 0) {
+      setError("Save the selected participants before generating the QR code.");
+      return;
+    }
+
+    // 5. Validate voting schedule.
     if (!votingScheduledOpenAt || !votingScheduledCloseAt) {
       setError("Choose both voting opening and closing times.");
       return;
@@ -584,11 +609,6 @@ export default function AdminDashboard({ user, onSignOut }) {
       return;
     }
 
-    if (!votingData?.candidates?.some((candidate) => candidate.selected)) {
-      setError("Save at least one voting participant first.");
-      return;
-    }
-
     setVotingQrGenerating(true);
     setError("");
     setNotice("");
@@ -598,8 +618,12 @@ export default function AdminDashboard({ user, onSignOut }) {
         "admin_generate_match_voting_qr",
         {
           p_match_id: votingMatchId,
-          p_scheduled_open_at: new Date(votingScheduledOpenAt).toISOString(),
-          p_scheduled_close_at: new Date(votingScheduledCloseAt).toISOString(),
+          p_scheduled_open_at: new Date(
+            votingScheduledOpenAt
+          ).toISOString(),
+          p_scheduled_close_at: new Date(
+            votingScheduledCloseAt
+          ).toISOString(),
         }
       );
 
@@ -621,6 +645,7 @@ export default function AdminDashboard({ user, onSignOut }) {
       setVotingQrGenerating(false);
     }
   }
+
 
   async function revokeVotingQr() {
     if (!supabase || !votingMatchId) return;
@@ -715,10 +740,13 @@ export default function AdminDashboard({ user, onSignOut }) {
     });
   }
 
+
   async function saveVotingParticipants() {
     if (!supabase || !votingMatchId || !votingData) return;
 
-    if (status !== "draft") {
+    const currentStatus = votingData.session?.status || "draft";
+
+    if (currentStatus !== "draft") {
       setError("Participants can only be changed while voting is in Draft.");
       return;
     }
@@ -727,12 +755,17 @@ export default function AdminDashboard({ user, onSignOut }) {
       .filter((candidate) => candidate.selected)
       .map((candidate) => candidate.registration_id);
 
+    if (selectedIds.length === 0) {
+      setError("Select at least one voting participant.");
+      return;
+    }
+
     setVotingSaving(true);
     setError("");
     setNotice("");
 
     try {
-      const { error: saveError } = await supabase.rpc(
+      const { data, error: saveError } = await supabase.rpc(
         "admin_save_match_voting_participants",
         {
           p_match_id: votingMatchId,
@@ -742,16 +775,25 @@ export default function AdminDashboard({ user, onSignOut }) {
 
       if (saveError) throw saveError;
 
+      if (!data) {
+        throw new Error("Voting session was not created successfully.");
+      }
+
       await loadVoting(votingMatchId);
-      setNotice("Voting participant list saved successfully.");
+
+      setNotice(
+        "Voting session and participant list saved successfully. You can now generate the QR code."
+      );
     } catch (saveError) {
       setError(
-        saveError?.message || "Could not save the voting participant list."
+        saveError?.message ||
+        "Could not create the voting session or save participants."
       );
     } finally {
       setVotingSaving(false);
     }
   }
+
 
   async function changeVotingStatus(newStatus) {
     if (!supabase || !votingMatchId) return;
@@ -2742,9 +2784,12 @@ export default function AdminDashboard({ user, onSignOut }) {
                   <div>
                     <span>Selected participants</span>
                     <strong>
-                      {votingData.candidates?.filter(
-                        (candidate) => candidate.selected
-                      ).length || 0}
+                      <div>
+                        <span>Selected participants (saved)</span>
+                        <strong>
+                          {votingData.selected_registration_ids?.length || 0}
+                        </strong>
+                      </div>
                     </strong>
                   </div>
                 </div>
@@ -2850,12 +2895,20 @@ export default function AdminDashboard({ user, onSignOut }) {
                       type="button"
                       className="primary-button"
                       onClick={generateVotingQr}
+
                       disabled={
                         votingQrGenerating ||
                         votingSaving ||
-                        !["draft", "open"].includes(votingData.session?.status || "draft") ||
-                        !votingData.candidates?.some((candidate) => candidate.selected)
+                        !votingData.session?.id ||
+                        !votingData.selected_registration_ids?.length ||
+                        !["draft", "open"].includes(
+                          votingData.session?.status || "draft"
+                        ) ||
+                        !votingData.candidates?.some(
+                          (candidate) => candidate.selected
+                        )
                       }
+
                     >
                       {votingQrGenerating ? "Generating..." : "Generate / Replace QR"}
                     </button>
@@ -2932,7 +2985,7 @@ export default function AdminDashboard({ user, onSignOut }) {
 
 
                 <div className="voting-management-actions">
-                  {votingData.session?.status === "draft" && (
+                  {(votingData.session?.status || "draft") === "draft" && (
                     <>
                       <button
                         type="button"
@@ -2943,20 +2996,20 @@ export default function AdminDashboard({ user, onSignOut }) {
                         {votingSaving ? "Saving..." : "Save participant list"}
                       </button>
 
-                      <button
-                        type="button"
-                        className="voting-open-button"
-                        disabled={
-                          votingSaving ||
-                          votingLoading ||
-                          !votingData.candidates?.some(
-                            (candidate) => candidate.selected
-                          )
-                        }
-                        onClick={() => changeVotingStatus("open")}
-                      >
-                        Open voting
-                      </button>
+                      {votingData.session?.id && (
+                        <button
+                          type="button"
+                          className="voting-open-button"
+                          disabled={
+                            votingSaving ||
+                            votingLoading ||
+                            !votingData.selected_registration_ids?.length
+                          }
+                          onClick={() => changeVotingStatus("open")}
+                        >
+                          Open voting
+                        </button>
+                      )}
                     </>
                   )}
 
@@ -2979,11 +3032,11 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </button>
                   )}
 
-
                   {votingData.session?.status === "closed" && (
                     <div className="voting-help-text">
                       <p>
-                        Voting is permanently closed. This session cannot be reopened or edited.
+                        Voting is closed. The participant list is locked.
+                        Use the finalisation action to process the voting results.
                       </p>
 
                       <button
@@ -3011,6 +3064,7 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </p>
                   )}
                 </div>
+
 
 
                 {votingData.session?.status === "open" && (
