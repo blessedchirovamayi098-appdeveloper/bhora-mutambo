@@ -399,6 +399,9 @@ export default function AdminDashboard({ user, onSignOut }) {
   const [votingQrUrl, setVotingQrUrl] = useState("");
   const [votingQrGenerating, setVotingQrGenerating] = useState(false);
   const [votingQrRevoking, setVotingQrRevoking] = useState(false);
+  const [votingMonitor, setVotingMonitor] = useState(null);
+  const [votingMonitorLoading, setVotingMonitorLoading] = useState(false);
+  const [votingMonitorError, setVotingMonitorError] = useState("");
 
   const [votingScheduledOpenAt, setVotingScheduledOpenAt] = useState("");
   const [votingScheduledCloseAt, setVotingScheduledCloseAt] = useState("");
@@ -678,9 +681,39 @@ export default function AdminDashboard({ user, onSignOut }) {
     }
   }
 
+  const loadVotingMonitor = useCallback(async (matchId) => {
+    if (!supabase || !matchId) {
+      setVotingMonitor(null);
+      setVotingMonitorError("");
+      return;
+    }
+
+    setVotingMonitorLoading(true);
+    setVotingMonitorError("");
+
+    try {
+      const { data, error: monitorError } = await supabase.rpc(
+        "admin_get_match_voting_monitor",
+        { p_match_id: matchId }
+      );
+
+      if (monitorError) throw monitorError;
+      setVotingMonitor(data);
+    } catch (err) {
+      setVotingMonitor(null);
+      setVotingMonitorError(
+        err?.message || "Could not load live voting participation."
+      );
+    } finally {
+      setVotingMonitorLoading(false);
+    }
+  }, []);
+
   async function loadVoting(matchId) {
     if (!supabase || !matchId) {
       setVotingData(null);
+      setVotingMonitor(null);
+      setVotingMonitorError("");
       return;
     }
 
@@ -697,6 +730,7 @@ export default function AdminDashboard({ user, onSignOut }) {
       if (votingError) throw votingError;
 
       setVotingData(data);
+      await loadVotingMonitor(matchId);
       setVotingScheduledOpenAt(
         toLocalDateTimeInput(data?.session?.scheduled_open_at)
       );
@@ -717,6 +751,8 @@ export default function AdminDashboard({ user, onSignOut }) {
   function selectVotingMatch(matchId) {
     setVotingMatchId(matchId);
     setVotingData(null);
+    setVotingMonitor(null);
+    setVotingMonitorError("");
     setError("");
     setNotice("");
 
@@ -832,6 +868,27 @@ export default function AdminDashboard({ user, onSignOut }) {
   useEffect(() => {
     loadRows();
   }, [loadRows]);
+
+  useEffect(() => {
+    if (
+      section !== "voting" ||
+      !votingMatchId ||
+      votingData?.session?.status !== "open"
+    ) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadVotingMonitor(votingMatchId);
+    }, 10000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    section,
+    votingMatchId,
+    votingData?.session?.status,
+    loadVotingMonitor,
+  ]);
 
   const filteredRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -2793,6 +2850,152 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </strong>
                   </div>
                 </div>
+
+                <section className="voting-monitor-panel">
+                  <div className="voting-group-heading">
+                    <div>
+                      <h3>Live voting participation</h3>
+                      <p className="voting-help-text">
+                        Shows who has submitted a ballot, not how anyone voted.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => loadVotingMonitor(votingMatchId)}
+                      disabled={votingMonitorLoading}
+                    >
+                      {votingMonitorLoading ? "Refreshing..." : "Refresh participation"}
+                    </button>
+                  </div>
+
+                  {votingMonitorError ? (
+                    <p className="voting-help-text" role="alert">
+                      Participation monitor unavailable: {votingMonitorError}
+                      {" "}Confirm that the admin_get_match_voting_monitor SQL function
+                      has been created successfully.
+                    </p>
+                  ) : votingMonitor ? (
+                    <>
+                      <div className="voting-session-summary voting-monitor-stats">
+                        <div>
+                          <span>Eligible voters</span>
+                          <strong>{votingMonitor.total_eligible_voters ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Submitted ballots</span>
+                          <strong>{votingMonitor.voted_count ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Not yet voted</span>
+                          <strong>{votingMonitor.not_voted_count ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Participation</span>
+                          <strong>
+                            {Number(votingMonitor.participation_percentage ?? 0).toFixed(1)}%
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div
+                        className="voting-monitor-progress"
+                        role="progressbar"
+                        aria-label="Voting participation"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.min(
+                          100,
+                          Math.max(0, Number(votingMonitor.participation_percentage ?? 0))
+                        )}
+                        style={{
+                          height: "10px",
+                          width: "100%",
+                          overflow: "hidden",
+                          borderRadius: "999px",
+                          background: "var(--border-color, #e5e7eb)",
+                          margin: "12px 0 18px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${Math.min(
+                              100,
+                              Math.max(0, Number(votingMonitor.participation_percentage ?? 0))
+                            )}%`,
+                            background: "var(--primary-color, #2563eb)",
+                            borderRadius: "999px",
+                            transition: "width 250ms ease",
+                          }}
+                        />
+                      </div>
+
+                      <div className="voting-group-heading">
+                        <h3>Voter submission status</h3>
+                        <span>
+                          {votingMonitor.voters?.length || 0} eligible members
+                        </span>
+                      </div>
+
+                      {(votingMonitor.voters || []).length === 0 ? (
+                        <p className="admin-empty">
+                          No eligible voters with active voting credentials were found.
+                        </p>
+                      ) : (
+                        <div className="admin-table-scroll">
+                          <table className="admin-data-table">
+                            <thead>
+                              <tr>
+                                <th>Member</th>
+                                <th>Role</th>
+                                <th>Submission status</th>
+                                <th>Submitted at</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(votingMonitor.voters || []).map((voter) => (
+                                <tr key={voter.registration_id}>
+                                  <td>{voter.display_name || "Unnamed member"}</td>
+                                  <td>{labelize(voter.role || "member")}</td>
+                                  <td>
+                                    <span
+                                      className={`voting-status ${voter.has_voted ? "submitted" : "not-submitted"
+                                        }`}
+                                    >
+                                      {voter.has_voted ? "Voted" : "Not voted"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    {voter.submitted_at
+                                      ? new Date(voter.submitted_at).toLocaleString()
+                                      : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      <p className="voting-help-text">
+                        Latest submission:{" "}
+                        {votingMonitor.last_activity
+                          ? new Date(votingMonitor.last_activity).toLocaleString()
+                          : "No ballots submitted yet"}
+                        {votingData.session?.status === "open"
+                          ? " · Automatically refreshes every 10 seconds while this section is open."
+                          : ""}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="admin-empty">
+                      {votingMonitorLoading
+                        ? "Loading participation information..."
+                        : "Participation information is not available yet."}
+                    </p>
+                  )}
+                </section>
 
                 {["player", "coach", "referee"].map((role) => {
                   const roleCandidates = (votingData.candidates || []).filter(
