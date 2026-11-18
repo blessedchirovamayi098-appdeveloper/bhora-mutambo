@@ -505,3 +505,263 @@
         padding: 15px;
     }
 }
+
+/* =========================================
+   LIVE VOTING PARTICIPATION MONITOR
+   Scoped styles: existing voting workflows remain unchanged.
+========================================= */
+
+.voting-monitor-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    padding: 22px;
+    border: 1px solid #dce5ef;
+    border-radius: 16px;
+    background: linear-gradient(145deg, #ffffff 0%, #f7fafc 100%);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.voting-monitor-panel>.voting-group-heading {
+    align-items: flex-start;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #e5eaf0;
+}
+
+.voting-monitor-panel .voting-group-heading h3 {
+    color: #172b4d;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.voting-monitor-panel .voting-group-heading .voting-help-text {
+    margin-top: 6px;
+}
+
+.voting-monitor-panel .secondary-button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 9px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #26364b;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.voting-monitor-panel .secondary-button:hover:not(:disabled) {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+    transform: translateY(-1px);
+}
+
+.voting-monitor-panel .secondary-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.voting-monitor-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.voting-monitor-stats>div {
+    min-width: 0;
+    padding: 15px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035);
+}
+
+.voting-monitor-stats>div:nth-child(2) {
+    border-color: #bbebce;
+    background: #f0fdf4;
+}
+
+.voting-monitor-stats>div:nth-child(3) {
+    border-color: #fecaca;
+    background: #fff5f5;
+}
+
+.voting-monitor-stats>div:nth-child(2) strong {
+    color: #15803d;
+}
+
+.voting-monitor-stats>div:nth-child(3) strong {
+    color: #b91c1c;
+}
+
+.voting-monitor-stats span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+}
+
+.voting-monitor-stats strong {
+    color: #172b4d;
+    font-size: 25px;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+.voting-monitor-progress {
+    height: 12px !important;
+    margin: 0 0 4px !important;
+    border: 1px solid #dbe4ee;
+    background: #e9eef5 !important;
+}
+
+.voting-monitor-progress>div {
+    background: linear-gradient(90deg, #16a34a, #22c55e) !important;
+}
+
+.voting-monitor-panel .admin-table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.voting-monitor-panel .admin-data-table {
+    width: 100%;
+    min-width: 620px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.voting-monitor-panel .admin-data-table thead th {
+    padding: 13px 15px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.055em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.voting-monitor-panel .admin-data-table tbody td {
+    padding: 13px 15px;
+    border-top: 1px solid #edf1f5;
+    color: #334155;
+    font-size: 13px;
+    vertical-align: middle;
+}
+
+.voting-monitor-panel .admin-data-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+/* Submission status: green means a ballot was submitted. */
+.voting-monitor-panel .voting-status.submitted {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border: 1px solid #86efac;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 12px !important;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.voting-monitor-panel .voting-status.submitted::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #16a34a;
+}
+
+/* Submission status: red means no ballot has been submitted yet. */
+.voting-monitor-panel .voting-status.not-submitted {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border: 1px solid #fca5a5;
+    border-radius: 999px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 12px !important;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.voting-monitor-panel .voting-status.not-submitted::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #dc2626;
+}
+
+.voting-monitor-panel>.voting-help-text:last-child {
+    padding: 11px 13px;
+    border-radius: 9px;
+    background: #f1f5f9;
+    color: #526174;
+    font-size: 12px;
+}
+
+.voting-monitor-panel [role="alert"] {
+    padding: 12px 14px;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+@media (max-width: 800px) {
+    .voting-monitor-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .voting-monitor-panel {
+        padding: 15px;
+        border-radius: 12px;
+    }
+
+    .voting-monitor-panel>.voting-group-heading {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .voting-monitor-panel .secondary-button {
+        width: 100%;
+    }
+
+    .voting-monitor-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+    }
+
+    .voting-monitor-stats>div {
+        padding: 12px;
+    }
+
+    .voting-monitor-stats strong {
+        font-size: 22px;
+    }
+}
+
+@media (max-width: 360px) {
+    .voting-monitor-stats {
+        grid-template-columns: 1fr;
+    }
+}
